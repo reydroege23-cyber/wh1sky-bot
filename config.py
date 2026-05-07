@@ -91,17 +91,6 @@ AI_TIMEOUT = 10  # seconds
 MAX_RESPONSE_LENGTH = 4096  # Telegram limit
 
 # =========================
-# IMAGE GENERATION
-# =========================
-
-HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY") or "hf_YOUR_TOKEN_HERE"
-IMAGE_MODEL = "stabilityai/stable-diffusion-2-1"  # or use "runwayml/stable-diffusion-v1-5"
-MAX_PROMPT_LENGTH = 200
-IMAGE_GENERATION_TIMEOUT = 60  # seconds
-IMAGE_COOLDOWN = 30  # seconds between generations per user
-ENABLE_IMAGE_GENERATION = True
-
-# =========================
 # DATA STORAGE
 # =========================
 
