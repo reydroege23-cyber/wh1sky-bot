@@ -347,30 +347,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @reply_required
 async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Issue warning."""
-    user_id = update.message.reply_to_message.from_user.id
-    user_id_str = str(user_id)
-    username = update.message.reply_to_message.from_user.first_name
-    
-    if user_id in ADMIN_IDS:
-        await update.message.reply_text("❌ Cannot warn admins.")
-        return
-    
-    bot_data["warnings"][user_id_str] = bot_data["warnings"].get(user_id_str, 0) + 1
-    count = bot_data["warnings"][user_id_str]
-    
-    await update.message.reply_text(
-        f"⚠️ {username} warned ({count}/{MAX_WARNINGS})"
-    )
-    
-    if count >= MAX_WARNINGS:
-        try:
-            await context.bot.ban_chat_member(update.effective_chat.id, user_id)
-            await update.message.reply_text(f"🚫 {username} auto-banned (max warnings)")
-            logger.warning(f"🚫 Auto-banned {user_id} after {count} warnings")
-        except Exception as e:
-            logger.error(f"Ban error: {e}")
-    
-    save_data(bot_data)
+    try:
+        user_id = update.message.reply_to_message.from_user.id
+        user_id_str = str(user_id)
+        username = update.message.reply_to_message.from_user.first_name
+        
+        if user_id in ADMIN_IDS:
+            await update.message.reply_text("❌ Cannot warn admins.")
+            return
+        
+        bot_data["warnings"][user_id_str] = bot_data["warnings"].get(user_id_str, 0) + 1
+        count = bot_data["warnings"][user_id_str]
+        
+        # Save warning immediately
+        save_data(bot_data)
+        
+        await update.message.reply_text(
+            f"⚠️ {username} warned ({count}/{MAX_WARNINGS})"
+        )
+        logger.info(f"⚠️ {username} warned: {count}/{MAX_WARNINGS}")
+        
+        # Check if max warnings reached
+        if count >= MAX_WARNINGS:
+            try:
+                # Ban the user
+                await context.bot.ban_chat_member(update.effective_chat.id, user_id)
+                await update.message.reply_text(f"🚫 {username} auto-banned (reached {MAX_WARNINGS} warnings)")
+                logger.warning(f"🚫 Auto-banned {user_id} ({username}) after {count} warnings")
+                
+                # Reset warnings after ban
+                bot_data["warnings"][user_id_str] = 0
+                save_data(bot_data)
+            except Exception as e:
+                logger.error(f"❌ Ban failed for {user_id}: {e}")
+                await update.message.reply_text(f"❌ Failed to ban user: {str(e)}")
+    except Exception as e:
+        logger.error(f"❌ Warn command error: {e}")
+        await update.message.reply_text("❌ Error processing warning")
 
 @admin_only
 @reply_required
