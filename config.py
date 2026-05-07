@@ -75,41 +75,6 @@ BAD_WORDS = [
 
 ]
 
-
-def normalize(text):
-    text = text.lower()
-
-    replacements = {
-        "@": "a",
-        "4": "a",
-        "3": "e",
-        "1": "i",
-        "!": "i",
-        "0": "o",
-        "$": "s",
-        "5": "s",
-        "7": "t",
-        "+": "t",
-    }
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-
-
-        text = re.sub(r'[^a-z0-9]', '', text)
-
-        text = re.sub(r'(.)\1+', r'\1', text)
-
-        return text
-    
-
-def contains_bad_word(message):
-    cleaned = normalize(message)
-
-    for word in BAD_WORDS:
-        if normalize(word) in cleaned:
-            return True
-
-    return False
 # =========================
 # SPAM PROTECTION
 # =========================
