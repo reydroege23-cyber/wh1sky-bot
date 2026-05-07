@@ -85,6 +85,7 @@ def admin_only(func):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.effective_user.id not in ADMIN_IDS:
             logger.warning(f"🚫 Unauthorized access by {update.effective_user.id}")
+            await update.message.reply_text("❌ Only admins can use this command.")
             return
         return await func(update, context)
     return wrapper
@@ -261,7 +262,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # STATS COMMAND
 # =========================
 
-@authorized_only
 @user_tracking
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced stats command."""
@@ -717,7 +717,6 @@ async def authorized_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Authorized list error: {e}")
         await update.message.reply_text(f"❌ Error: {e}")
 
-@authorized_only
 @user_tracking
 async def roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Roll dice command."""
@@ -740,7 +739,6 @@ async def roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Roll error: {e}")
         await update.message.reply_text("❌ Failed to roll dice")
 
-@authorized_only
 @user_tracking
 async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Flip a coin."""
@@ -754,7 +752,6 @@ async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Coin flip error: {e}")
         await update.message.reply_text("❌ Failed to flip coin")
 
-@authorized_only
 @user_tracking
 async def calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Simple calculator."""
@@ -778,7 +775,6 @@ async def calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Calc error: {e}")
         await update.message.reply_text("❌ Invalid calculation")
 
-@authorized_only
 @user_tracking
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Echo message."""
@@ -798,7 +794,6 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Echo error: {e}")
         await update.message.reply_text("❌ Failed to echo message")
 
-@authorized_only
 @user_tracking
 async def time_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show current time."""
@@ -810,7 +805,6 @@ async def time_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Time error: {e}")
         await update.message.reply_text("❌ Failed to get time")
 
-@authorized_only
 @user_tracking
 async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tell a random Rape."""
@@ -821,7 +815,8 @@ async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "RAPE kurdish Warrior",
         "RAPE KRD",
         "RAPE Kardox",
-        "RAPE Namat"
+        "RAPE Namat",
+        "RAPE ⛰️🏴"
     ]
     try:
         Rape_text = random.choice(Rape)
@@ -831,7 +826,6 @@ async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Rape error: {e}")
         await update.message.reply_text("❌ Failed to tell Rape")
 
-@authorized_only
 @user_tracking
 async def eightball(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Magic 8 ball."""
@@ -850,7 +844,6 @@ async def eightball(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"8ball error: {e}")
         await update.message.reply_text("❌ Magic ball malfunction")
 
-@authorized_only
 @user_tracking
 async def reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Reverse text."""
@@ -869,7 +862,6 @@ async def reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Reverse error: {e}")
         await update.message.reply_text("❌ Failed to reverse")
 
-@authorized_only
 @user_tracking
 async def fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Random interesting fact."""
@@ -894,7 +886,6 @@ async def fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Fact error: {e}")
         await update.message.reply_text("❌ Failed to fetch fact")
 
-@authorized_only
 @user_tracking
 async def morse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Convert text to Morse code."""
@@ -919,7 +910,6 @@ async def morse(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Morse error: {e}")
         await update.message.reply_text("❌ Failed to convert")
 
-@authorized_only
 @user_tracking
 async def random_num(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Generate random number."""
@@ -943,7 +933,6 @@ async def random_num(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Random error: {e}")
         await update.message.reply_text("❌ Failed to generate number")
 
-@authorized_only
 @user_tracking
 async def upside_down(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Flip text upside down."""
@@ -966,7 +955,6 @@ async def upside_down(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Flip error: {e}")
         await update.message.reply_text("❌ Failed to flip")
 
-@authorized_only
 @user_tracking
 async def base64_encode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Encode text to base64."""
@@ -983,7 +971,6 @@ async def base64_encode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Base64 error: {e}")
         await update.message.reply_text("❌ Failed to encode")
 
-@authorized_only
 @user_tracking
 async def guess_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start a number guessing game."""
@@ -1022,7 +1009,6 @@ async def guess_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Guess error: {e}")
         await update.message.reply_text("❌ Game error")
 
-@authorized_only
 @user_tracking
 async def user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get your user ID."""
@@ -1035,7 +1021,6 @@ async def user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"UserID error: {e}")
         await update.message.reply_text("❌ Failed to get ID")
 
-@authorized_only
 @user_tracking
 async def user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get your profile info."""
@@ -1069,7 +1054,6 @@ async def user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Profile error: {e}")
         await update.message.reply_text("❌ Failed to load profile")
 
-@authorized_only
 @user_tracking
 async def invite_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get chat invite link."""
@@ -1085,7 +1069,6 @@ async def invite_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Invite error: {e}")
         await update.message.reply_text("❌ Failed to get invite link")
 
-@authorized_only
 @user_tracking
 async def members_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get member count."""
@@ -1100,7 +1083,6 @@ async def members_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Members error: {e}")
         await update.message.reply_text("❌ Failed to get member count")
 
-@authorized_only
 @user_tracking
 async def quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get random inspirational quote."""
@@ -1125,7 +1107,6 @@ async def quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Quote error: {e}")
         await update.message.reply_text("❌ Failed to get quote")
 
-@authorized_only
 @user_tracking
 async def dice_roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Roll a dice (1-6)."""
@@ -1138,7 +1119,6 @@ async def dice_roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Dice error: {e}")
         await update.message.reply_text("❌ Failed to roll dice")
 
-@authorized_only
 @user_tracking
 async def uptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check bot uptime."""
@@ -1161,7 +1141,6 @@ async def uptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Uptime error: {e}")
         await update.message.reply_text("❌ Failed to get uptime")
 
-@authorized_only
 @user_tracking
 async def hajhanm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Special command."""
@@ -1171,7 +1150,6 @@ async def hajhanm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Hajhanm error: {e}")
 
-@authorized_only
 @user_tracking
 async def hoba(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Special command - Our Queen."""
@@ -1181,7 +1159,6 @@ async def hoba(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Hoba error: {e}")
 
-@authorized_only
 @user_tracking
 async def serok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send Serok music link."""
@@ -1194,7 +1171,6 @@ async def serok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Serok error: {e}")
 
-@authorized_only
 @user_tracking
 async def amanj(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Special command - KING."""
@@ -1204,7 +1180,6 @@ async def amanj(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Amanj error: {e}")
 
-@authorized_only
 @user_tracking
 async def arya(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Special command - Biji PKK."""
@@ -1214,7 +1189,6 @@ async def arya(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Arya error: {e}")
 
-@authorized_only
 @user_tracking
 async def kurdishezdi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Special command - Biji Serok Barzani."""
@@ -1224,7 +1198,6 @@ async def kurdishezdi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Kurdishezdi error: {e}")
 
-@authorized_only
 @user_tracking
 async def whisky_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Special command - Whisky price."""
