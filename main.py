@@ -814,7 +814,7 @@ async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.message.reply_to_message:
             target_user = update.message.reply_to_message.from_user
             target_name = target_user.first_name or "User"
-            response = f"😂 RAPE {target_name}"
+            response = f"Rape {target_name}"
             await update.message.reply_text(response)
             logger.info(f"😂 {update.effective_user.id} raped {target_name}")
         else:
