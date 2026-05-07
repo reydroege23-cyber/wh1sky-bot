@@ -298,17 +298,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    user_id_int = update.effective_user.id
-    user_id = str(user_id_int)
+    user_id = str(update.effective_user.id)
     text = update.message.text.lower()
-    
-    # Check authorization (admins bypass)
-    if user_id_int not in ADMIN_IDS:
-        authorized_users = bot_data.get("metadata", {}).get("authorized_users", [])
-        if user_id_int not in authorized_users:
-            await update.message.reply_text("❌ You are not authorized to use this bot.\nContact an admin for access.")
-            logger.warning(f"🚫 Unauthorized message from {user_id_int}")
-            return
     
     try:
         # SPEAK MODE - Gemini responds to all messages
