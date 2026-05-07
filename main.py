@@ -807,21 +807,30 @@ async def time_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @user_tracking
 async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tell a random Rape."""
+    """Tell a random Rape with target user's name."""
     import random
-    Rape = [
-  "RAPE Amanj",
-        "RAPE kurdish ezidi",
-        "RAPE kurdish Warrior",
-        "RAPE KRD",
-        "RAPE Kardox",
-        "RAPE Namat",
-        "RAPE ⛰️🏴"
-    ]
     try:
-        Rape_text = random.choice(Rape)
-        await update.message.reply_text(f"😂 {Rape_text}")
-        logger.info(f"😂 {update.effective_user.id} got a Rape")
+        # Check if replying to someone
+        if update.message.reply_to_message:
+            target_user = update.message.reply_to_message.from_user
+            target_name = target_user.first_name or "User"
+            response = f"😂 RAPE {target_name}"
+            await update.message.reply_text(response)
+            logger.info(f"😂 {update.effective_user.id} raped {target_name}")
+        else:
+            # Random Rape if not replying
+            Rape = [
+                "RAPE Amanj",
+                "RAPE kurdish ezidi",
+                "RAPE kurdish Warrior",
+                "RAPE KRD",
+                "RAPE Kardox",
+                "RAPE Namat",
+                "RAPE ⛰️🏴"
+            ]
+            Rape_text = random.choice(Rape)
+            await update.message.reply_text(f"😂 {Rape_text}")
+            logger.info(f"😂 {update.effective_user.id} got a Rape")
     except Exception as e:
         logger.error(f"Rape error: {e}")
         await update.message.reply_text("❌ Failed to tell Rape")
