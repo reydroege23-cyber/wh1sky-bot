@@ -99,6 +99,25 @@ def reply_required(func):
         return await func(update, context)
     return wrapper
 
+def authorized_only(func):
+    """Check if user is authorized to use bot."""
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        # Admins bypass authorization check
+        if user_id in ADMIN_IDS:
+            return await func(update, context)
+        
+        # Check if user is authorized
+        authorized_users = bot_data.get("metadata", {}).get("authorized_users", [])
+        if user_id not in authorized_users:
+            await update.message.reply_text("❌ You are not authorized to use this bot.\nContact an admin for access.")
+            logger.warning(f"🚫 Unauthorized bot access attempt by {user_id}")
+            return
+        
+        return await func(update, context)
+    return wrapper
+
 def user_tracking(func):
     """Track user statistics."""
     @wraps(func)
@@ -242,6 +261,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # STATS COMMAND
 # =========================
 
+@authorized_only
 @user_tracking
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced stats command."""
@@ -278,8 +298,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    user_id = str(update.effective_user.id)
+    user_id_int = update.effective_user.id
+    user_id = str(user_id_int)
     text = update.message.text.lower()
+    
+    # Check authorization (admins bypass)
+    if user_id_int not in ADMIN_IDS:
+        authorized_users = bot_data.get("metadata", {}).get("authorized_users", [])
+        if user_id_int not in authorized_users:
+            await update.message.reply_text("❌ You are not authorized to use this bot.\nContact an admin for access.")
+            logger.warning(f"🚫 Unauthorized message from {user_id_int}")
+            return
     
     try:
         # SPEAK MODE - Gemini responds to all messages
@@ -346,44 +375,86 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @admin_only
 @reply_required
 async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Issue warning."""
+    """Issue warning - 3 warnings = permanent ban (FIXED)."""
+    user_id = None
+    user_id_str = None
+    username = None
+    
     try:
+        # Get user info from replied message
         user_id = update.message.reply_to_message.from_user.id
         user_id_str = str(user_id)
-        username = update.message.reply_to_message.from_user.first_name
+        username = update.message.reply_to_message.from_user.first_name or "User"
         
+        logger.info(f"⚠️ WARN COMMAND: Starting warning process for {username} ({user_id})")
+        
+        # Admin check
         if user_id in ADMIN_IDS:
             await update.message.reply_text("❌ Cannot warn admins.")
+            logger.warning(f"⚠️ Attempt to warn admin {user_id}")
             return
         
-        bot_data["warnings"][user_id_str] = bot_data["warnings"].get(user_id_str, 0) + 1
-        count = bot_data["warnings"][user_id_str]
+        # STEP 1: Get current warning count from persistent storage
+        current_warns = bot_data["warnings"].get(user_id_str, 0)
+        logger.info(f"📍 Current warns for {username}: {current_warns}")
         
-        # Save warning immediately
+        # STEP 2: Increment the counter
+        new_count = current_warns + 1
+        bot_data["warnings"][user_id_str] = new_count
+        logger.info(f"📍 New count set to: {new_count}")
+        
+        # STEP 3: Save immediately - CRITICAL STEP
         save_data(bot_data)
+        logger.info(f"💾 Data saved to file")
         
+        # STEP 4: Verify the save was successful by reloading
+        verification_data = load_data()
+        verify_count = verification_data["warnings"].get(user_id_str, 0)
+        logger.info(f"✅ Verification: Warns in file = {verify_count}")
+        
+        if verify_count != new_count:
+            logger.error(f"❌ VERIFICATION FAILED: Expected {new_count}, got {verify_count}")
+        
+        # STEP 5: Send feedback message to admin
         await update.message.reply_text(
-            f"⚠️ {username} warned ({count}/{MAX_WARNINGS})"
+            f"⚠️ {username} warned ({new_count}/{MAX_WARNINGS})"
         )
-        logger.info(f"⚠️ {username} warned: {count}/{MAX_WARNINGS}")
+        logger.info(f"📢 Warned {username}: {new_count}/{MAX_WARNINGS}")
         
-        # Check if max warnings reached
-        if count >= MAX_WARNINGS:
+        # STEP 6: Check if ban threshold reached
+        if new_count >= MAX_WARNINGS:
+            logger.critical(f"🚫 BAN THRESHOLD REACHED: {username} has {new_count} warnings - INITIATING BAN")
+            
             try:
-                # Ban the user
+                # Execute ban
                 await context.bot.ban_chat_member(update.effective_chat.id, user_id)
-                await update.message.reply_text(f"🚫 {username} auto-banned (reached {MAX_WARNINGS} warnings)")
-                logger.warning(f"🚫 Auto-banned {user_id} ({username}) after {count} warnings")
+                logger.critical(f"✅ BAN EXECUTED: {username} ({user_id}) successfully banned")
                 
-                # Reset warnings after ban
+                # Notify admins of successful ban
+                await update.message.reply_text(
+                    f"🚫 **{username} HAS BEEN PERMANENTLY BANNED**\n\n"
+                    f"Reason: Reached {MAX_WARNINGS} warnings\n"
+                    f"Action: Automatic ban executed"
+                )
+                
+                # STEP 7: Reset warns to 0 after successful ban (mark as completed)
                 bot_data["warnings"][user_id_str] = 0
                 save_data(bot_data)
-            except Exception as e:
-                logger.error(f"❌ Ban failed for {user_id}: {e}")
-                await update.message.reply_text(f"❌ Failed to ban user: {str(e)}")
+                logger.critical(f"✅ Warns reset to 0 for {username} after ban")
+                
+            except Exception as ban_error:
+                logger.error(f"❌ BAN FAILED for {username}: {ban_error}")
+                await update.message.reply_text(
+                    f"❌ Failed to ban {username}: {str(ban_error)}\n"
+                    f"⚠️ User has reached max warnings but manual ban required"
+                )
+        
     except Exception as e:
-        logger.error(f"❌ Warn command error: {e}")
-        await update.message.reply_text("❌ Error processing warning")
+        logger.error(f"❌ CRITICAL ERROR in warn(): {e}", exc_info=True)
+        if username:
+            await update.message.reply_text(f"❌ Error warning {username}: {str(e)}")
+        else:
+            await update.message.reply_text("❌ Error processing warning")
 
 @admin_only
 @reply_required
@@ -542,6 +613,120 @@ async def admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = f"**👮 ADMINS**\n\n{admin_list}"
     await update.message.reply_text(msg, parse_mode="Markdown")
 
+@admin_only
+async def debug_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Debug command - show all warnings data."""
+    try:
+        warns_data = bot_data["warnings"]
+        if not warns_data:
+            await update.message.reply_text("📊 No warnings recorded yet")
+            return
+        
+        # Build message
+        msg = "**🔍 WARNS DEBUG DATA**\n\n"
+        for uid, count in warns_data.items():
+            msg += f"User {uid}: {count} warns\n"
+        
+        msg += f"\n**Total users warned:** {len(warns_data)}"
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        logger.info(f"🔍 Debug warns called - {len(warns_data)} users with warnings")
+    except Exception as e:
+        logger.error(f"Debug warns error: {e}")
+        await update.message.reply_text(f"❌ Error: {e}")
+
+@admin_only
+@reply_required
+async def authorize(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Authorize a user to access the bot."""
+    try:
+        user = update.message.reply_to_message.from_user
+        user_id = user.id
+        username = user.first_name or "User"
+        
+        # Initialize authorized_users list if needed
+        if "metadata" not in bot_data:
+            bot_data["metadata"] = {}
+        if "authorized_users" not in bot_data["metadata"]:
+            bot_data["metadata"]["authorized_users"] = []
+        
+        authorized_users = bot_data["metadata"]["authorized_users"]
+        
+        # Check if already authorized
+        if user_id in authorized_users:
+            await update.message.reply_text(f"✅ {username} is already authorized")
+            logger.info(f"ℹ️ {username} already authorized")
+            return
+        
+        # Add to authorized users
+        authorized_users.append(user_id)
+        save_data(bot_data)
+        
+        await update.message.reply_text(f"✅ {username} is now authorized to use the bot!")
+        logger.info(f"✅ {username} ({user_id}) authorized")
+        
+    except Exception as e:
+        logger.error(f"Authorize error: {e}")
+        await update.message.reply_text(f"❌ Error: {e}")
+
+@admin_only
+@reply_required
+async def deauthorize(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remove authorization from a user."""
+    try:
+        user = update.message.reply_to_message.from_user
+        user_id = user.id
+        username = user.first_name or "User"
+        
+        if "metadata" not in bot_data or "authorized_users" not in bot_data["metadata"]:
+            await update.message.reply_text(f"❌ {username} is not authorized")
+            return
+        
+        authorized_users = bot_data["metadata"]["authorized_users"]
+        
+        # Check if authorized
+        if user_id not in authorized_users:
+            await update.message.reply_text(f"❌ {username} is not authorized")
+            logger.info(f"ℹ️ {username} was not authorized")
+            return
+        
+        # Remove from authorized users
+        authorized_users.remove(user_id)
+        save_data(bot_data)
+        
+        await update.message.reply_text(f"🚫 {username} is no longer authorized")
+        logger.info(f"🚫 {username} ({user_id}) deauthorized")
+        
+    except Exception as e:
+        logger.error(f"Deauthorize error: {e}")
+        await update.message.reply_text(f"❌ Error: {e}")
+
+@admin_only
+async def authorized_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all authorized users."""
+    try:
+        if "metadata" not in bot_data or "authorized_users" not in bot_data["metadata"]:
+            await update.message.reply_text("📊 No authorized users yet")
+            return
+        
+        authorized_users = bot_data["metadata"]["authorized_users"]
+        
+        if not authorized_users:
+            await update.message.reply_text("📊 No authorized users yet")
+            return
+        
+        msg = "**✅ AUTHORIZED USERS**\n\n"
+        for uid in authorized_users:
+            msg += f"• {uid}\n"
+        
+        msg += f"\n**Total:** {len(authorized_users)} users"
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        logger.info(f"📊 Authorized list viewed - {len(authorized_users)} users")
+        
+    except Exception as e:
+        logger.error(f"Authorized list error: {e}")
+        await update.message.reply_text(f"❌ Error: {e}")
+
+@authorized_only
 @user_tracking
 async def roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Roll dice command."""
@@ -564,6 +749,7 @@ async def roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Roll error: {e}")
         await update.message.reply_text("❌ Failed to roll dice")
 
+@authorized_only
 @user_tracking
 async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Flip a coin."""
@@ -577,6 +763,7 @@ async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Coin flip error: {e}")
         await update.message.reply_text("❌ Failed to flip coin")
 
+@authorized_only
 @user_tracking
 async def calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Simple calculator."""
@@ -600,6 +787,7 @@ async def calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Calc error: {e}")
         await update.message.reply_text("❌ Invalid calculation")
 
+@authorized_only
 @user_tracking
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Echo message."""
@@ -619,6 +807,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Echo error: {e}")
         await update.message.reply_text("❌ Failed to echo message")
 
+@authorized_only
 @user_tracking
 async def time_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show current time."""
@@ -630,6 +819,7 @@ async def time_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Time error: {e}")
         await update.message.reply_text("❌ Failed to get time")
 
+@authorized_only
 @user_tracking
 async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tell a random Rape."""
@@ -650,6 +840,7 @@ async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Rape error: {e}")
         await update.message.reply_text("❌ Failed to tell Rape")
 
+@authorized_only
 @user_tracking
 async def eightball(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Magic 8 ball."""
@@ -668,6 +859,7 @@ async def eightball(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"8ball error: {e}")
         await update.message.reply_text("❌ Magic ball malfunction")
 
+@authorized_only
 @user_tracking
 async def reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Reverse text."""
@@ -686,6 +878,7 @@ async def reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Reverse error: {e}")
         await update.message.reply_text("❌ Failed to reverse")
 
+@authorized_only
 @user_tracking
 async def fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Random interesting fact."""
@@ -710,6 +903,7 @@ async def fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Fact error: {e}")
         await update.message.reply_text("❌ Failed to fetch fact")
 
+@authorized_only
 @user_tracking
 async def morse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Convert text to Morse code."""
@@ -734,6 +928,7 @@ async def morse(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Morse error: {e}")
         await update.message.reply_text("❌ Failed to convert")
 
+@authorized_only
 @user_tracking
 async def random_num(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Generate random number."""
@@ -757,6 +952,7 @@ async def random_num(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Random error: {e}")
         await update.message.reply_text("❌ Failed to generate number")
 
+@authorized_only
 @user_tracking
 async def upside_down(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Flip text upside down."""
@@ -779,6 +975,7 @@ async def upside_down(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Flip error: {e}")
         await update.message.reply_text("❌ Failed to flip")
 
+@authorized_only
 @user_tracking
 async def base64_encode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Encode text to base64."""
@@ -795,6 +992,7 @@ async def base64_encode(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Base64 error: {e}")
         await update.message.reply_text("❌ Failed to encode")
 
+@authorized_only
 @user_tracking
 async def guess_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start a number guessing game."""
@@ -833,6 +1031,7 @@ async def guess_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Guess error: {e}")
         await update.message.reply_text("❌ Game error")
 
+@authorized_only
 @user_tracking
 async def user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get your user ID."""
@@ -845,6 +1044,7 @@ async def user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"UserID error: {e}")
         await update.message.reply_text("❌ Failed to get ID")
 
+@authorized_only
 @user_tracking
 async def user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get your profile info."""
@@ -878,6 +1078,7 @@ async def user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Profile error: {e}")
         await update.message.reply_text("❌ Failed to load profile")
 
+@authorized_only
 @user_tracking
 async def invite_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get chat invite link."""
@@ -893,6 +1094,7 @@ async def invite_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Invite error: {e}")
         await update.message.reply_text("❌ Failed to get invite link")
 
+@authorized_only
 @user_tracking
 async def members_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get member count."""
@@ -907,6 +1109,7 @@ async def members_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Members error: {e}")
         await update.message.reply_text("❌ Failed to get member count")
 
+@authorized_only
 @user_tracking
 async def quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get random inspirational quote."""
@@ -931,6 +1134,7 @@ async def quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Quote error: {e}")
         await update.message.reply_text("❌ Failed to get quote")
 
+@authorized_only
 @user_tracking
 async def dice_roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Roll a dice (1-6)."""
@@ -943,6 +1147,7 @@ async def dice_roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Dice error: {e}")
         await update.message.reply_text("❌ Failed to roll dice")
 
+@authorized_only
 @user_tracking
 async def uptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check bot uptime."""
@@ -965,6 +1170,7 @@ async def uptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Uptime error: {e}")
         await update.message.reply_text("❌ Failed to get uptime")
 
+@authorized_only
 @user_tracking
 async def hajhanm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Special command."""
@@ -974,6 +1180,7 @@ async def hajhanm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Hajhanm error: {e}")
 
+@authorized_only
 @user_tracking
 async def hoba(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Special command - Our Queen."""
@@ -983,6 +1190,7 @@ async def hoba(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Hoba error: {e}")
 
+@authorized_only
 @user_tracking
 async def serok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send Serok music link."""
@@ -995,6 +1203,7 @@ async def serok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Serok error: {e}")
 
+@authorized_only
 @user_tracking
 async def amanj(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Special command - KING."""
@@ -1004,6 +1213,7 @@ async def amanj(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Amanj error: {e}")
 
+@authorized_only
 @user_tracking
 async def arya(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Special command - Biji PKK."""
@@ -1013,6 +1223,7 @@ async def arya(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Arya error: {e}")
 
+@authorized_only
 @user_tracking
 async def kurdishezdi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Special command - Biji Serok Barzani."""
@@ -1022,6 +1233,7 @@ async def kurdishezdi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Kurdishezdi error: {e}")
 
+@authorized_only
 @user_tracking
 async def whisky_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Special command - Whisky price."""
@@ -1128,6 +1340,10 @@ def setup_bot():
     app.add_handler(CommandHandler("unban", unban))
     app.add_handler(CommandHandler("info", user_info))
     app.add_handler(CommandHandler("admins", admins))
+    app.add_handler(CommandHandler("debug_warns", debug_warns))
+    app.add_handler(CommandHandler("authorize", authorize))
+    app.add_handler(CommandHandler("deauthorize", deauthorize))
+    app.add_handler(CommandHandler("authorized", authorized_list))
     app.add_handler(CommandHandler("roll", roll))
     app.add_handler(CommandHandler("coin", coin))
     app.add_handler(CommandHandler("calc", calc))
