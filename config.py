@@ -4,6 +4,7 @@ Store all configuration in one place for easy management
 """
 
 import os
+import re
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -44,11 +45,6 @@ MUTE_DURATION = 10
 # =========================
 
 BAD_WORDS = [
-    "porn",
-    "sex",
-    "xxx",
-    "nude",
-    "18+",
     "fuck arya",
     "rape arya",
     "fuck u arya",
@@ -56,14 +52,64 @@ BAD_WORDS = [
     "fuck arya dad",
     "fuck arya father",
     "fuck arya mom",
-    "sex",
     "sex with arya",
     "/fuck arya",
     "/rape arya",
-    "/sex arya"
+    "/sex arya","fuck arya",
+    "arya bitch",
+    "arya slut",
+    "arya trash",
+    "arya loser",
+    "arya idiot",
+    "arya clown",
+    "arya sucks",
+    "ugly arya",
+    "stupid arya",
+    "hate arya",
+    "shut up arya",
+    "arya annoying",
+    "arya fake",
+    "arya toxic",
+    "arya cringe",
+    "arya pathetic"
 
 ]
 
+
+def normalize(text):
+    text = text.lower()
+
+    replacements = {
+        "@": "a",
+        "4": "a",
+        "3": "e",
+        "1": "i",
+        "!": "i",
+        "0": "o",
+        "$": "s",
+        "5": "s",
+        "7": "t",
+        "+": "t",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+
+        text = re.sub(r'[^a-z0-9]', '', text)
+
+        text = re.sub(r'(.)\1+', r'\1', text)
+
+        return text
+    
+
+def contains_bad_word(message):
+    cleaned = normalize(message)
+
+    for word in BAD_WORDS:
+        if normalize(word) in cleaned:
+            return True
+
+    return False
 # =========================
 # SPAM PROTECTION
 # =========================
@@ -78,6 +124,17 @@ SPAM_TIME = 10  # seconds
 AI_MODEL = "gemini-1.5-flash"
 AI_TIMEOUT = 10  # seconds
 MAX_RESPONSE_LENGTH = 4096  # Telegram limit
+
+# =========================
+# IMAGE GENERATION
+# =========================
+
+HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY") or "hf_YOUR_TOKEN_HERE"
+IMAGE_MODEL = "stabilityai/stable-diffusion-2-1"  # or use "runwayml/stable-diffusion-v1-5"
+MAX_PROMPT_LENGTH = 200
+IMAGE_GENERATION_TIMEOUT = 60  # seconds
+IMAGE_COOLDOWN = 30  # seconds between generations per user
+ENABLE_IMAGE_GENERATION = True
 
 # =========================
 # DATA STORAGE

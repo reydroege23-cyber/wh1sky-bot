@@ -20,6 +20,9 @@ from pathlib import Path
 from functools import wraps
 from config import *
 import asyncio
+import requests
+import time
+from io import BytesIO
 
 # =========================
 # LOGGING SETUP (ENHANCED)
@@ -74,6 +77,66 @@ def save_data(data):
 
 # Load initial data
 bot_data = load_data()
+
+# =========================
+# IMAGE GENERATION COOLDOWN
+# =========================
+
+image_generation_cooldown = {}  # Track cooldowns per user
+
+# =========================
+# IMAGE GENERATION FUNCTIONS
+# =========================
+
+async def generate_image(prompt: str) -> bytes:
+    """Generate image using Hugging Face API."""
+    if not ENABLE_IMAGE_GENERATION:
+        return None
+    
+    if not prompt or len(prompt) > MAX_PROMPT_LENGTH:
+        return None
+    
+    try:
+        headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
+        payload = {"inputs": prompt}
+        
+        logger.info(f"🎨 Generating image for prompt: {prompt[:50]}...")
+        
+        # Make request with timeout
+        response = await asyncio.to_thread(
+            requests.post,
+            f"https://api-inference.huggingface.co/models/{IMAGE_MODEL}",
+            headers=headers,
+            json=payload,
+            timeout=IMAGE_GENERATION_TIMEOUT
+        )
+        
+        if response.status_code == 200:
+            logger.info("✅ Image generated successfully")
+            return response.content
+        else:
+            logger.error(f"❌ Image generation failed: {response.status_code}")
+            return None
+            
+    except asyncio.TimeoutError:
+        logger.error("⏱️ Image generation timeout")
+        return None
+    except Exception as e:
+        logger.error(f"❌ Image generation error: {e}")
+        return None
+
+def check_cooldown(user_id: int) -> tuple[bool, int]:
+    """Check if user is on cooldown. Returns (is_on_cooldown, seconds_remaining)."""
+    current_time = time.time()
+    if user_id in image_generation_cooldown:
+        cooldown_end = image_generation_cooldown[user_id]
+        if current_time < cooldown_end:
+            return True, int(cooldown_end - current_time)
+    return False, 0
+
+def set_cooldown(user_id: int):
+    """Set cooldown for user."""
+    image_generation_cooldown[user_id] = time.time() + IMAGE_COOLDOWN
 
 # =========================
 # DECORATORS (ENHANCED)
@@ -267,6 +330,76 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Bot status check."""
     status = "🟢 ONLINE" if AI_AVAILABLE else "🟡 DEGRADED"
     await update.message.reply_text(f"{status}\n⚡ Response Time: Fast")
+
+# =========================
+# IMAGE GENERATION HANDLER
+# =========================
+
+@user_tracking
+async def handle_image_generation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle !whisky image generation command."""
+    if not update.message or not update.message.text:
+        return
+    
+    text = update.message.text.strip()
+    
+    # Check if message starts with !whisky
+    if not text.startswith("!whisky"):
+        return
+    
+    # Extract prompt
+    prompt = text[7:].strip()  # Remove "!whisky " prefix
+    
+    if not prompt:
+        await update.message.reply_text("❌ Usage: `!whisky <prompt>`\nExample: `!whisky cyberpunk wolf`", parse_mode="Markdown")
+        return
+    
+    if len(prompt) > MAX_PROMPT_LENGTH:
+        await update.message.reply_text(f"❌ Prompt too long! Maximum {MAX_PROMPT_LENGTH} characters.")
+        return
+    
+    user_id = update.effective_user.id
+    
+    # Check cooldown
+    on_cooldown, remaining = check_cooldown(user_id)
+    if on_cooldown:
+        await update.message.reply_text(f"⏳ Please wait {remaining}s before generating another image.")
+        return
+    
+    try:
+        # Show loading message
+        loading_msg = await update.message.reply_text("🎨 Creating image...\n⏳ This may take a minute...")
+        
+        # Generate image
+        image_data = await generate_image(prompt)
+        
+        if image_data:
+            # Send image
+            await update.message.reply_photo(
+                photo=BytesIO(image_data),
+                caption=f"✅ Generated: `{prompt}`",
+                parse_mode="Markdown"
+            )
+            logger.info(f"✅ Image sent to {user_id}")
+            
+            # Delete loading message
+            try:
+                await loading_msg.delete()
+            except:
+                pass
+            
+            # Set cooldown
+            set_cooldown(user_id)
+        else:
+            await update.message.reply_text("❌ Failed to generate image. Try again later or contact admin.")
+            try:
+                await loading_msg.delete()
+            except:
+                pass
+                
+    except Exception as e:
+        logger.error(f"❌ Image generation handler error: {e}")
+        await update.message.reply_text(f"❌ Error: {str(e)}")
 
 # =========================
 # MESSAGE HANDLER (ENHANCED)
@@ -1009,6 +1142,15 @@ async def kurdishezdi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Kurdishezdi error: {e}")
 
+@user_tracking
+async def whisky_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Special command - Whisky price."""
+    try:
+        await update.message.reply_text("🥃 500$ WHISKY")
+        logger.info(f"🥃 {update.effective_user.id} triggered whisky")
+    except Exception as e:
+        logger.error(f"Whisky error: {e}")
+
 @admin_only
 async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enable Gemini speak mode for admins."""
@@ -1133,9 +1275,13 @@ def setup_bot():
     app.add_handler(CommandHandler("Amanj", amanj))
     app.add_handler(CommandHandler("Arya", arya))
     app.add_handler(CommandHandler("kurdishezdi", kurdishezdi))
+    app.add_handler(CommandHandler("Whisky", whisky_cmd))
     app.add_handler(CommandHandler("speak", speak))
     app.add_handler(CommandHandler("stop_speak", stop_speak))
     app.add_handler(CommandHandler("unSpeak", unspeak))
+    
+    # Image generation (must be before general message handler)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_image_generation))
     
     # Messages (must be last)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
