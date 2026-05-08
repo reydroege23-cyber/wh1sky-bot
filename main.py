@@ -566,11 +566,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred.")
 
 # =========================
+# HELPER FUNCTION FOR ADMIN COMMANDS
+# =========================
+
+async def get_user_from_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Extract user from reply, mention, or user ID.
+    Returns: (user_id, username) or (None, None) if not found
+    """
+    # OPTION 1: Check if replying to someone
+    if update.message.reply_to_message:
+        user_id = update.message.reply_to_message.from_user.id
+        username = update.message.reply_to_message.from_user.first_name or "User"
+        return user_id, username
+    
+    # OPTION 2: Check for mentions (@username) or user ID in command args
+    if context.args:
+        arg = context.args[0]
+        
+        # If it's a mention like @username
+        if arg.startswith('@'):
+            username = arg[1:]  # Remove the @ symbol
+            # For now, we can't directly resolve @username to user_id without chat member access
+            # So we'll need to use a different approach or ask for ID
+            # For this version, we'll tell the user to use ID instead
+            return None, None
+        
+        # If it's a user ID (numeric)
+        try:
+            user_id = int(arg)
+            # We don't have the username directly, so we'll try to fetch from context
+            # For now, use "User" as fallback
+            username = f"User {user_id}"
+            return user_id, username
+        except ValueError:
+            return None, None
+    
+    return None, None
+
+# =========================
 # ADMIN COMMANDS (ENHANCED)
 # =========================
 
 @admin_only
-@reply_required
 async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Issue warning - 3 warnings = permanent ban (FIXED)."""
     user_id = None
@@ -578,11 +616,17 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = None
     
     try:
-        # Get user info from replied message
-        user_id = update.message.reply_to_message.from_user.id
-        user_id_str = str(user_id)
-        username = update.message.reply_to_message.from_user.first_name or "User"
+        # Get user from reply, mention, or user ID
+        user_id, username = await get_user_from_command(update, context)
         
+        if not user_id:
+            await update.message.reply_text(
+                "❌ Please reply to a message, mention someone (@user), or provide a user ID.\n"
+                "Example: `/warn @username` or `/warn 123456789`"
+            )
+            return
+        
+        user_id_str = str(user_id)
         logger.info(f"⚠️ WARN COMMAND: Starting warning process for {username} ({user_id})")
         
         # Admin check
@@ -654,36 +698,54 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Error processing warning")
 
 @admin_only
-@reply_required
 async def check_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check warnings."""
-    user_id = str(update.message.reply_to_message.from_user.id)
-    username = update.message.reply_to_message.from_user.first_name
-    warns = bot_data["warnings"].get(user_id, 0)
+    user_id, username = await get_user_from_command(update, context)
+    
+    if not user_id:
+        await update.message.reply_text(
+            "❌ Please reply to a message or provide a user ID.\n"
+            "Example: `/warns 123456789`"
+        )
+        return
+    
+    user_id_str = str(user_id)
+    warns = bot_data["warnings"].get(user_id_str, 0)
     
     await update.message.reply_text(
         f"⚠️ {username}: {warns}/{MAX_WARNINGS} warnings"
     )
 
 @admin_only
-@reply_required
 async def clear_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Clear warnings."""
-    user_id = str(update.message.reply_to_message.from_user.id)
-    username = update.message.reply_to_message.from_user.first_name
+    user_id, username = await get_user_from_command(update, context)
     
-    bot_data["warnings"][user_id] = 0
+    if not user_id:
+        await update.message.reply_text(
+            "❌ Please reply to a message or provide a user ID.\n"
+            "Example: `/clear_warns 123456789`"
+        )
+        return
+    
+    user_id_str = str(user_id)
+    bot_data["warnings"][user_id_str] = 0
     await update.message.reply_text(f"✅ {username}'s warnings cleared")
     save_data(bot_data)
     logger.info(f"✅ Warnings cleared for {user_id}")
 
 @admin_only
-@reply_required
 async def mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mute user."""
     try:
-        user_id = update.message.reply_to_message.from_user.id
-        username = update.message.reply_to_message.from_user.first_name
+        user_id, username = await get_user_from_command(update, context)
+        
+        if not user_id:
+            await update.message.reply_text(
+                "❌ Please reply to a message or provide a user ID.\n"
+                "Example: `/mute 123456789`"
+            )
+            return
         
         if user_id in ADMIN_IDS:
             await update.message.reply_text("❌ Cannot mute admins.")
@@ -705,13 +767,18 @@ async def mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Failed to mute user: {str(e)}")
 
 @admin_only
-@reply_required
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Unmute user."""
-    user_id = update.message.reply_to_message.from_user.id
-    username = update.message.reply_to_message.from_user.first_name
-
     try:
+        user_id, username = await get_user_from_command(update, context)
+        
+        if not user_id:
+            await update.message.reply_text(
+                "❌ Please reply to a message or provide a user ID.\n"
+                "Example: `/unmute 123456789`"
+            )
+            return
+
         await context.bot.restrict_chat_member(
             update.effective_chat.id,
             user_id,
@@ -729,17 +796,22 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to unmute user")
 
 @admin_only
-@reply_required
 async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Kick user."""
-    user_id = update.message.reply_to_message.from_user.id
-    username = update.message.reply_to_message.from_user.first_name
-    
-    if user_id in ADMIN_IDS:
-        await update.message.reply_text("❌ Cannot kick admins.")
-        return
-
     try:
+        user_id, username = await get_user_from_command(update, context)
+        
+        if not user_id:
+            await update.message.reply_text(
+                "❌ Please reply to a message or provide a user ID.\n"
+                "Example: `/kick 123456789`"
+            )
+            return
+        
+        if user_id in ADMIN_IDS:
+            await update.message.reply_text("❌ Cannot kick admins.")
+            return
+
         await context.bot.ban_chat_member(update.effective_chat.id, user_id)
         await context.bot.unban_chat_member(update.effective_chat.id, user_id)
         await update.message.reply_text(f"👢 {username} kicked")
@@ -749,17 +821,22 @@ async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to kick user")
 
 @admin_only
-@reply_required
 async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ban user."""
-    user_id = update.message.reply_to_message.from_user.id
-    username = update.message.reply_to_message.from_user.first_name
-    
-    if user_id in ADMIN_IDS:
-        await update.message.reply_text("❌ Cannot ban admins.")
-        return
-
     try:
+        user_id, username = await get_user_from_command(update, context)
+        
+        if not user_id:
+            await update.message.reply_text(
+                "❌ Please reply to a message or provide a user ID.\n"
+                "Example: `/ban 123456789`"
+            )
+            return
+        
+        if user_id in ADMIN_IDS:
+            await update.message.reply_text("❌ Cannot ban admins.")
+            return
+
         await context.bot.ban_chat_member(update.effective_chat.id, user_id)
         await update.message.reply_text(f"🚫 {username} banned")
         logger.info(f"🚫 {user_id} banned")
@@ -768,13 +845,18 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to ban user")
 
 @admin_only
-@reply_required
 async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Unban user."""
-    user_id = update.message.reply_to_message.from_user.id
-    username = update.message.reply_to_message.from_user.first_name
-
     try:
+        user_id, username = await get_user_from_command(update, context)
+        
+        if not user_id:
+            await update.message.reply_text(
+                "❌ Please reply to a message or provide a user ID.\n"
+                "Example: `/unban 123456789`"
+            )
+            return
+
         await context.bot.unban_chat_member(update.effective_chat.id, user_id)
         await update.message.reply_text(f"✅ {username} unbanned")
         logger.info(f"✅ {user_id} unbanned")
@@ -783,25 +865,35 @@ async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to unban user")
 
 @admin_only
-@reply_required
 async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get user information."""
-    user = update.message.reply_to_message.from_user
-    user_id_str = str(user.id)
-    stats = bot_data["stats"].get(user_id_str, {})
-    warns = bot_data["warnings"].get(user_id_str, 0)
-    
-    info = f"""
+    try:
+        user_id, username = await get_user_from_command(update, context)
+        
+        if not user_id:
+            await update.message.reply_text(
+                "❌ Please reply to a message or provide a user ID.\n"
+                "Example: `/info 123456789`"
+            )
+            return
+
+        user_id_str = str(user_id)
+        stats = bot_data["stats"].get(user_id_str, {})
+        warns = bot_data["warnings"].get(user_id_str, 0)
+        
+        info = f"""
 👤 **USER INFORMATION**
 
-ID: {user.id}
-Name: {user.first_name} {user.last_name or ''}
-Username: @{user.username or 'N/A'}
+ID: {user_id}
+Name: {username}
 Messages: {stats.get('messages', 0)}
 AI Queries: {stats.get('ai_queries', 0)}
 Warnings: {warns}/{MAX_WARNINGS}
-    """
-    await update.message.reply_text(info, parse_mode="Markdown")
+        """
+        await update.message.reply_text(info, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"User info error: {e}")
+        await update.message.reply_text(f"❌ Failed to get user info: {str(e)}")
 
 @admin_only
 async def admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -832,13 +924,17 @@ async def debug_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Error: {e}")
 
 @admin_only
-@reply_required
 async def authorize(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Authorize a user to access the bot."""
     try:
-        user = update.message.reply_to_message.from_user
-        user_id = int(user.id)  # Ensure integer
-        username = user.first_name or "User"
+        user_id, username = await get_user_from_command(update, context)
+        
+        if not user_id:
+            await update.message.reply_text(
+                "❌ Please reply to a message or provide a user ID.\n"
+                "Example: `/authorize 123456789`"
+            )
+            return
         
         # Initialize authorized_users list if needed
         if "metadata" not in bot_data:
