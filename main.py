@@ -289,6 +289,38 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"{status}\n⚡ Response Time: Fast")
 
 # =========================
+# AI COMMAND
+# =========================
+
+@user_tracking
+async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /ai command to ask Gemini AI."""
+    user_id = str(update.effective_user.id)
+    
+    # Get query from arguments
+    query = " ".join(context.args).strip() if context.args else ""
+    
+    if not query:
+        await update.message.reply_text(
+            "❓ Ask me something!\n\n"
+            "Example: `/ai What is Python?`",
+            parse_mode="Markdown"
+        )
+        return
+    
+    try:
+        typing_msg = await update.message.reply_text("🤖 Thinking...")
+        response = await ask_ai(query)
+        await typing_msg.edit_text(response)
+        
+        bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
+        logger.info(f"🤖 AI query from {user_id}: {len(query)} chars")
+        save_data(bot_data)
+    except Exception as e:
+        logger.error(f"AI command error: {e}")
+        await update.message.reply_text("❌ AI service error. Try again later.")
+
+# =========================
 # MESSAGE HANDLER (ENHANCED)
 # =========================
 
@@ -1216,6 +1248,7 @@ async def whisky_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Whisky error: {e}")
 
+@user_tracking
 @admin_only
 async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enable Gemini speak mode for admins."""
@@ -1228,6 +1261,7 @@ async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Speak error: {e}")
         await update.message.reply_text("❌ Failed to enable speak mode")
 
+@user_tracking
 @admin_only
 async def stop_speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Disable Gemini speak mode."""
@@ -1240,6 +1274,7 @@ async def stop_speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Stop speak error: {e}")
         await update.message.reply_text("❌ Failed to disable speak mode")
 
+@user_tracking
 @admin_only
 async def unspeak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Alias for stop_speak - disable Gemini speak mode."""
@@ -1302,6 +1337,7 @@ def setup_bot():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("ping", ping))
+    app.add_handler(CommandHandler("ai", ai_command))
     app.add_handler(CommandHandler("ilikeu", warn))
     app.add_handler(CommandHandler("warns", check_warns))
     app.add_handler(CommandHandler("clear_warns", clear_warns))
