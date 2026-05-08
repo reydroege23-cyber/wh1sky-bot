@@ -322,15 +322,18 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Bot status check with diagnostics."""
     import time
+    import datetime
     try:
-        start_time = time.time()
+        # Calculate actual response time from when message was received
+        msg_time = update.message.date
+        current_time = datetime.datetime.now(datetime.timezone.utc)
+        response_time_ms = (current_time - msg_time).total_seconds() * 1000
         
         if AI_AVAILABLE:
-            response_time = time.time() - start_time
             status_msg = "🟢 **BOT STATUS: ONLINE**\n\n"
             status_msg += "✅ Telegram: Connected\n"
             status_msg += "✅ Gemini AI: Ready\n"
-            status_msg += f"⚡ Response Time: {response_time*1000:.0f}ms"
+            status_msg += f"⚡ Response Time: {response_time_ms:.0f}ms"
         else:
             status_msg = "🟡 **BOT STATUS: DEGRADED**\n\n"
             status_msg += "✅ Telegram: Connected\n"
