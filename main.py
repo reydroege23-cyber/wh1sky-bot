@@ -958,29 +958,30 @@ async def time_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @user_tracking
 async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tell a random Rape with target user's name."""
+    """Tell a random Rape with target user's name - only works on user messages, not bots."""
     import random
     try:
         # Check if replying to someone
         if update.message.reply_to_message:
-            # Don't reply if the reply is to bot's message
-            if update.message.reply_to_message.from_user.is_bot:
+            # Only work if replying to a user, NOT a bot
+            replied_user = update.message.reply_to_message.from_user
+            if not replied_user:
+                logger.info(f"ℹ️ {update.effective_user.id} tried /rape on system message - ignoring")
+                return
+            
+            # Check if the replied message is from a bot
+            if replied_user.is_bot:
                 logger.info(f"ℹ️ {update.effective_user.id} tried /rape on bot message - ignoring")
                 return
             
-            try:
-                target_user = update.message.reply_to_message.from_user
-                if target_user:
-                    target_name = target_user.first_name or "User"
-                    response = f"Rape {target_name}"
-                    await update.message.reply_text(response)
-                    logger.info(f"😂 {update.effective_user.id} raped {target_name}")
-                    return
-            except Exception as reply_error:
-                logger.error(f"Reply processing error: {reply_error}")
-                # Fall through to random rape if reply processing fails
+            # Process reply to user
+            target_name = replied_user.first_name or "User"
+            response = f"Rape {target_name}"
+            await update.message.reply_text(response)
+            logger.info(f"😂 {update.effective_user.id} raped {target_name}")
+            return
         
-        # Random Rape if not replying or if reply failed
+        # Only do random Rape if NOT replying to anything
         Rape_list = [
             "RAPE Amanj",
             "RAPE kurdish ezidi",
@@ -993,11 +994,11 @@ async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
         Rape_text = random.choice(Rape_list)
         await update.message.reply_text(f"😂 {Rape_text}")
         logger.info(f"😂 {update.effective_user.id} got a random Rape")
+        
     except Exception as e:
         logger.error(f"Rape error: {type(e).__name__}: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        await update.message.reply_text("❌ Failed to tell Rape")
 
 @user_tracking
 async def eightball(update: Update, context: ContextTypes.DEFAULT_TYPE):
