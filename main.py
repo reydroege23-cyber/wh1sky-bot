@@ -351,6 +351,51 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Ping failed")
 
 # =========================
+# UPDATE COMMAND
+# =========================
+
+@user_tracking
+async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show latest updates and new features."""
+    try:
+        update_msg = """
+📢 **LATEST UPDATES & NEW FEATURES**
+
+**🔧 RECENT FIXES:**
+• Fixed `/ai` command - Now works with proper async handling
+• Fixed `/speak` mode - AI responds to all messages smoothly
+• Fixed `/rape` command - Ignores bot replies
+• Fixed `/authorize` - User ID consistency
+• Improved `/ping` - Shows actual response time
+
+**🎉 NEW FEATURES:**
+• `/test` - Admin diagnostic tool for AI health
+• Enhanced error messages with detailed logging
+• Better AI initialization with live status updates
+
+**📊 BOT STATUS:**
+• Total Commands: 40+
+• Admin Tools: 15
+• Fun Commands: 25+
+• AI Integration: Active ✅
+
+**🚀 COMMAND HIGHLIGHTS:**
+• `/ai <question>` - Ask Gemini AI
+• `/speak` - Enable AI respond mode (admin)
+• `/stats` - View your usage
+• `/help` - Full command list
+
+**📝 VERSION:** 2.5+
+
+For full changelog, use `/help`
+        """
+        await update.message.reply_text(update_msg, parse_mode="Markdown")
+        logger.info(f"📢 {update.effective_user.id} viewed updates")
+    except Exception as e:
+        logger.error(f"Update command error: {e}")
+        await update.message.reply_text("❌ Failed to load updates")
+
+# =========================
 # TEST COMMAND (DIAGNOSTIC)
 # =========================
 
@@ -1492,6 +1537,7 @@ def setup_bot():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("ping", ping))
+    app.add_handler(CommandHandler("update", update_command))
     app.add_handler(CommandHandler("test", test_ai))
     app.add_handler(CommandHandler("ai", ai_command))
     app.add_handler(CommandHandler("ilikeu", warn))
