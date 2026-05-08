@@ -42,10 +42,24 @@ logger = logging.getLogger(__name__)
 try:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(AI_MODEL)
-    AI_AVAILABLE = True
-    logger.info("✅ Gemini AI configured successfully")
+    
+    # Test the API connection
+    try:
+        test_response = model.generate_content("Test", timeout=5)
+        if test_response and hasattr(test_response, 'text'):
+            AI_AVAILABLE = True
+            logger.info("✅ Gemini AI configured and tested successfully")
+        else:
+            logger.warning("⚠️ AI test response invalid")
+            AI_AVAILABLE = False
+    except Exception as test_error:
+        logger.warning(f"⚠️ AI test failed: {test_error}")
+        AI_AVAILABLE = False
+        
 except Exception as e:
-    logger.warning(f"⚠️ AI configuration failed: {e}")
+    logger.warning(f"⚠️ AI configuration failed: {type(e).__name__}: {e}")
+    import traceback
+    logger.warning(traceback.format_exc())
     AI_AVAILABLE = False
 
 # =========================
@@ -109,9 +123,11 @@ def authorized_only(func):
         if user_id in ADMIN_IDS:
             return await func(update, context)
         
-        # Check if user is authorized
+        # Check if user is authorized (handle both int and string types)
         authorized_users = bot_data.get("metadata", {}).get("authorized_users", [])
-        if user_id not in authorized_users:
+        # Convert to strings for comparison to handle JSON type issues
+        authorized_users_str = [str(uid) for uid in authorized_users]
+        if str(user_id) not in authorized_users_str:
             await update.message.reply_text("❌ You are not authorized to use this bot.\nContact an admin for access.")
             logger.warning(f"🚫 Unauthorized bot access attempt by {user_id}")
             return
@@ -152,15 +168,34 @@ async def ask_ai(message: str) -> str:
             loop.run_in_executor(None, lambda: model.generate_content(message)),
             timeout=AI_TIMEOUT
         )
+        
+        # Check if response exists
+        if not response:
+            logger.error("❌ Empty response from Gemini API")
+            return "❌ AI returned empty response. Try again."
+        
+        # Check if response has text attribute
+        if not hasattr(response, 'text'):
+            logger.error(f"❌ Response object has no text attribute: {type(response)}")
+            return "❌ AI response format error. Try again."
+        
+        # Check if text is empty
+        if not response.text or response.text.strip() == "":
+            logger.error("❌ AI returned empty text")
+            return "❌ AI returned empty response. Try again."
+        
         text = response.text[:MAX_RESPONSE_LENGTH]
         logger.info(f"✅ AI response: {len(text)} chars")
         return text
+        
     except asyncio.TimeoutError:
         logger.error("⏱️ AI request timeout")
         return "❌ Request timed out. Try shorter question."
     except Exception as e:
         logger.error(f"❌ AI Error: {type(e).__name__}: {e}")
-        return f"❌ AI Error: {str(e)[:100]}"
+        import traceback
+        logger.error(traceback.format_exc())
+        return f"❌ AI Error: {str(e)[:80]}"
 
 # =========================
 # START COMMAND
@@ -294,6 +329,27 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"{status}\n⚡ Response Time: Fast")
 
 # =========================
+# TEST COMMAND (DIAGNOSTIC)
+# =========================
+
+@admin_only
+async def test_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Test AI functionality - admin only."""
+    try:
+        msg = await update.message.reply_text("🧪 Testing AI connection...")
+        logger.info("🧪 Starting AI test...")
+        
+        response = await ask_ai("Say 'AI is working' in one sentence")
+        logger.info(f"🧪 Test response: {response}")
+        
+        await msg.edit_text(f"✅ AI Test Result:\n\n{response}")
+    except Exception as e:
+        logger.error(f"🧪 AI test failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await update.message.reply_text(f"❌ AI Test Failed:\n{str(e)[:200]}")
+
+# =========================
 # AI COMMAND
 # =========================
 
@@ -313,17 +369,43 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    typing_msg = None
     try:
+        # Send thinking message
         typing_msg = await update.message.reply_text("🤖 Thinking...")
-        response = await ask_ai(query)
-        await typing_msg.edit_text(response)
+        logger.info(f"🤖 Processing AI query from {user_id}: {query[:50]}...")
         
+        # Get AI response
+        response = await ask_ai(query)
+        logger.info(f"🤖 Got response: {len(response)} chars")
+        
+        # Try to edit the message
+        if typing_msg:
+            try:
+                await typing_msg.edit_text(response)
+            except Exception as edit_error:
+                logger.error(f"Failed to edit message: {edit_error}")
+                # If edit fails, send as new message
+                await update.message.reply_text(response)
+        else:
+            await update.message.reply_text(response)
+        
+        # Update statistics
         bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
-        logger.info(f"🤖 AI query from {user_id}: {len(query)} chars")
+        logger.info(f"✅ AI query successful from {user_id}")
         save_data(bot_data)
+        
     except Exception as e:
-        logger.error(f"AI command error: {e}")
-        await update.message.reply_text("❌ AI service error. Try again later.")
+        logger.error(f"❌ AI command error: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        try:
+            if typing_msg:
+                await typing_msg.edit_text(f"❌ Error: {str(e)[:80]}")
+            else:
+                await update.message.reply_text(f"❌ Error: {str(e)[:80]}")
+        except:
+            pass
 
 # =========================
 # MESSAGE HANDLER (ENHANCED)
@@ -342,17 +424,37 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # SPEAK MODE - Gemini responds to all messages
         speak_mode = bot_data.get("metadata", {}).get("speak_mode", False)
         if speak_mode:
+            typing_msg = None
             try:
                 typing_msg = await update.message.reply_text("🤖 Thinking...")
+                logger.info(f"🤖 Speak mode - processing from {user_id}")
                 response = await ask_ai(update.message.text)
-                await typing_msg.edit_text(response)
+                logger.info(f"🤖 Got response: {len(response)} chars")
+                
+                if typing_msg:
+                    try:
+                        await typing_msg.edit_text(response)
+                    except Exception as edit_error:
+                        logger.error(f"Failed to edit speak mode message: {edit_error}")
+                        await update.message.reply_text(response)
+                else:
+                    await update.message.reply_text(response)
                 
                 bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
-                logger.info(f"🤖 Speak mode - AI response to {user_id}")
+                logger.info(f"✅ Speak mode - AI response to {user_id}")
                 save_data(bot_data)
                 return
             except Exception as e:
-                logger.error(f"Speak mode error: {e}")
+                logger.error(f"❌ Speak mode error: {type(e).__name__}: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                try:
+                    if typing_msg:
+                        await typing_msg.edit_text(f"❌ AI Error: {str(e)[:80]}")
+                    else:
+                        await update.message.reply_text(f"❌ AI Error: {str(e)[:80]}")
+                except:
+                    pass
         
         # NSFW FILTER
         if ENABLE_AUTO_MODERATION:
@@ -668,7 +770,7 @@ async def authorize(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Authorize a user to access the bot."""
     try:
         user = update.message.reply_to_message.from_user
-        user_id = user.id
+        user_id = int(user.id)  # Ensure integer
         username = user.first_name or "User"
         
         # Initialize authorized_users list if needed
@@ -679,14 +781,17 @@ async def authorize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         authorized_users = bot_data["metadata"]["authorized_users"]
         
+        # Convert all to integers for consistency
+        authorized_users_int = [int(uid) for uid in authorized_users]
+        
         # Check if already authorized
-        if user_id in authorized_users:
+        if user_id in authorized_users_int:
             await update.message.reply_text(f"✅ {username} is already authorized")
             logger.info(f"ℹ️ {username} already authorized")
             return
         
-        # Add to authorized users
-        authorized_users.append(user_id)
+        # Add to authorized users (as integer) and save with consistency
+        bot_data["metadata"]["authorized_users"] = authorized_users_int + [user_id]
         save_data(bot_data)
         
         await update.message.reply_text(f"✅ {username} is now authorized to use the bot!")
@@ -702,7 +807,7 @@ async def deauthorize(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Remove authorization from a user."""
     try:
         user = update.message.reply_to_message.from_user
-        user_id = user.id
+        user_id = int(user.id)  # Ensure integer
         username = user.first_name or "User"
         
         if "metadata" not in bot_data or "authorized_users" not in bot_data["metadata"]:
@@ -711,14 +816,17 @@ async def deauthorize(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         authorized_users = bot_data["metadata"]["authorized_users"]
         
+        # Convert to integers for comparison
+        authorized_users_int = [int(uid) for uid in authorized_users]
+        
         # Check if authorized
-        if user_id not in authorized_users:
+        if user_id not in authorized_users_int:
             await update.message.reply_text(f"❌ {username} is not authorized")
             logger.info(f"ℹ️ {username} was not authorized")
             return
         
         # Remove from authorized users
-        authorized_users.remove(user_id)
+        bot_data["metadata"]["authorized_users"] = [uid for uid in authorized_users_int if uid != user_id]
         save_data(bot_data)
         
         await update.message.reply_text(f"🚫 {username} is no longer authorized")
@@ -742,13 +850,19 @@ async def authorized_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📊 No authorized users yet")
             return
         
+        # Convert to integers and remove duplicates
+        authorized_users_int = list(set(int(uid) for uid in authorized_users))
+        # Update the data to ensure consistency
+        bot_data["metadata"]["authorized_users"] = authorized_users_int
+        save_data(bot_data)
+        
         msg = "**✅ AUTHORIZED USERS**\n\n"
-        for uid in authorized_users:
+        for uid in sorted(authorized_users_int):
             msg += f"• {uid}\n"
         
-        msg += f"\n**Total:** {len(authorized_users)} users"
+        msg += f"\n**Total:** {len(authorized_users_int)} users"
         await update.message.reply_text(msg, parse_mode="Markdown")
-        logger.info(f"📊 Authorized list viewed - {len(authorized_users)} users")
+        logger.info(f"📊 Authorized list viewed - {len(authorized_users_int)} users")
         
     except Exception as e:
         logger.error(f"Authorized list error: {e}")
@@ -849,27 +963,40 @@ async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Check if replying to someone
         if update.message.reply_to_message:
-            target_user = update.message.reply_to_message.from_user
-            target_name = target_user.first_name or "User"
-            response = f"Rape {target_name}"
-            await update.message.reply_text(response)
-            logger.info(f"😂 {update.effective_user.id} raped {target_name}")
-        else:
-            # Random Rape if not replying
-            Rape = [
-                "RAPE Amanj",
-                "RAPE kurdish ezidi",
-                "RAPE kurdish Warrior",
-                "RAPE KRD",
-                "RAPE Kardox",
-                "RAPE Namat",
-                "RAPE ⛰️🏴"
-            ]
-            Rape_text = random.choice(Rape)
-            await update.message.reply_text(f"😂 {Rape_text}")
-            logger.info(f"😂 {update.effective_user.id} got a Rape")
+            # Don't reply if the reply is to bot's message
+            if update.message.reply_to_message.from_user.is_bot:
+                logger.info(f"ℹ️ {update.effective_user.id} tried /rape on bot message - ignoring")
+                return
+            
+            try:
+                target_user = update.message.reply_to_message.from_user
+                if target_user:
+                    target_name = target_user.first_name or "User"
+                    response = f"Rape {target_name}"
+                    await update.message.reply_text(response)
+                    logger.info(f"😂 {update.effective_user.id} raped {target_name}")
+                    return
+            except Exception as reply_error:
+                logger.error(f"Reply processing error: {reply_error}")
+                # Fall through to random rape if reply processing fails
+        
+        # Random Rape if not replying or if reply failed
+        Rape_list = [
+            "RAPE Amanj",
+            "RAPE kurdish ezidi",
+            "RAPE kurdish Warrior",
+            "RAPE KRD",
+            "RAPE Kardox",
+            "RAPE Namat",
+            "RAPE ⛰️🏴"
+        ]
+        Rape_text = random.choice(Rape_list)
+        await update.message.reply_text(f"😂 {Rape_text}")
+        logger.info(f"😂 {update.effective_user.id} got a random Rape")
     except Exception as e:
-        logger.error(f"Rape error: {e}")
+        logger.error(f"Rape error: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         await update.message.reply_text("❌ Failed to tell Rape")
 
 @user_tracking
@@ -1342,6 +1469,7 @@ def setup_bot():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("ping", ping))
+    app.add_handler(CommandHandler("test", test_ai))
     app.add_handler(CommandHandler("ai", ai_command))
     app.add_handler(CommandHandler("ilikeu", warn))
     app.add_handler(CommandHandler("warns", check_warns))
