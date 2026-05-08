@@ -86,7 +86,7 @@ SPAM_TIME = 10  # seconds
 # AI SETTINGS
 # =========================
 
-AI_MODEL = "gemini-1.5-flash"
+AI_MODEL = "gemini-pro"
 AI_TIMEOUT = 10  # seconds
 MAX_RESPONSE_LENGTH = 4096  # Telegram limit
 
