@@ -292,7 +292,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_user_from_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Extract user from reply, mention, or user ID.
+    Extract user from reply or @username mention.
     Returns: (user_id, username) or (None, None) if not found
     """
     # OPTION 1: Check if replying to someone
@@ -301,27 +301,36 @@ async def get_user_from_command(update: Update, context: ContextTypes.DEFAULT_TY
         username = update.message.reply_to_message.from_user.first_name or "User"
         return user_id, username
     
-    # OPTION 2: Check for mentions (@username) or user ID in command args
+    # OPTION 2: Check for @username mention in command args
     if context.args:
         arg = context.args[0]
         
         # If it's a mention like @username
         if arg.startswith('@'):
             username = arg[1:]  # Remove the @ symbol
-            # For now, we can't directly resolve @username to user_id without chat member access
-            # So we'll need to use a different approach or ask for ID
-            # For this version, we'll tell the user to use ID instead
-            return None, None
+            
+            try:
+                # Try to get the user from chat members by username
+                chat_members = await context.bot.get_chat(update.effective_chat.id)
+                
+                # Get all chat members and search for matching username
+                # Using get_chat_member with username
+                user = await context.bot.get_chat_member(
+                    chat_id=update.effective_chat.id,
+                    user_id=f"@{username}"  # Try to get by username
+                )
+                
+                if user:
+                    user_id = user.user.id
+                    return user_id, username
+                else:
+                    return None, None
+                    
+            except Exception as e:
+                logger.error(f"Failed to resolve @{username}: {e}")
+                return None, None
         
-        # If it's a user ID (numeric)
-        try:
-            user_id = int(arg)
-            # We don't have the username directly, so we'll try to fetch from context
-            # For now, use "User" as fallback
-            username = f"User {user_id}"
-            return user_id, username
-        except ValueError:
-            return None, None
+        return None, None
     
     return None, None
 
@@ -371,8 +380,8 @@ async def check_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not user_id:
         await update.message.reply_text(
-            "❌ Please reply to a message or provide a user ID.\n"
-            "Example: `/warns 123456789`"
+            "❌ Please reply to a message or mention a username.\n"
+            "Example: `/warns @username`"
         )
         return
     
@@ -390,8 +399,8 @@ async def clear_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not user_id:
         await update.message.reply_text(
-            "❌ Please reply to a message or provide a user ID.\n"
-            "Example: `/clear_warns 123456789`"
+            "❌ Please reply to a message or mention a username.\n"
+            "Example: `/clear_warns @username`"
         )
         return
     
@@ -409,8 +418,8 @@ async def mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not user_id:
             await update.message.reply_text(
-                "❌ Please reply to a message or provide a user ID.\n"
-                "Example: `/mute 123456789`"
+                "❌ Please reply to a message or mention a username.\n"
+                "Example: `/mute @username`"
             )
             return
         
@@ -438,8 +447,8 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not user_id:
             await update.message.reply_text(
-                "❌ Please reply to a message or provide a user ID.\n"
-                "Example: `/unmute 123456789`"
+                "❌ Please reply to a message or mention a username.\n"
+                "Example: `/unmute @username`"
             )
             return
 
@@ -467,8 +476,8 @@ async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not user_id:
             await update.message.reply_text(
-                "❌ Please reply to a message or provide a user ID.\n"
-                "Example: `/kick 123456789`"
+                "❌ Please reply to a message or mention a username.\n"
+                "Example: `/kick @username`"
             )
             return
         
@@ -492,8 +501,8 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not user_id:
             await update.message.reply_text(
-                "❌ Please reply to a message or provide a user ID.\n"
-                "Example: `/ban 123456789`"
+                "❌ Please reply to a message or mention a username.\n"
+                "Example: `/ban @username`"
             )
             return
         
@@ -516,8 +525,8 @@ async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not user_id:
             await update.message.reply_text(
-                "❌ Please reply to a message or provide a user ID.\n"
-                "Example: `/unban 123456789`"
+                "❌ Please reply to a message or mention a username.\n"
+                "Example: `/unban @username`"
             )
             return
 
@@ -536,8 +545,8 @@ async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not user_id:
             await update.message.reply_text(
-                "❌ Please reply to a message or provide a user ID.\n"
-                "Example: `/info 123456789`"
+                "❌ Please reply to a message or mention a username.\n"
+                "Example: `/info @username`"
             )
             return
 
