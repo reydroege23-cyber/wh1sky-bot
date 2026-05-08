@@ -5,6 +5,7 @@ AI integration and common helpers
 
 import google.generativeai as genai
 import logging
+import asyncio
 from config import GEMINI_API_KEY, AI_MODEL, AI_TIMEOUT, MAX_RESPONSE_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,11 @@ async def ask_gemini(prompt: str) -> str:
     """
     try:
         model = genai.GenerativeModel(AI_MODEL)
-        response = model.generate_content(prompt, timeout=AI_TIMEOUT)
+        loop = asyncio.get_event_loop()
+        response = await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: model.generate_content(prompt)),
+            timeout=AI_TIMEOUT
+        )
         
         # Ensure response is within Telegram's message limit
         text = response.text[:MAX_RESPONSE_LENGTH]
@@ -32,12 +37,12 @@ async def ask_gemini(prompt: str) -> str:
         logger.info(f"AI query successful: {len(text)} chars")
         return text
         
-    except TimeoutError:
+    except asyncio.TimeoutError:
         logger.error("AI request timed out")
         return "❌ AI request timed out. Please try again."
     except Exception as e:
         logger.error(f"AI Error: {type(e).__name__}: {e}")
-        return "❌ AI service temporarily unavailable. Please try again later."
+        return f"❌ AI Error: {str(e)[:100]}"
 
 
 def format_stats_message(stats: dict, user_warnings: int, max_warnings: int) -> str:

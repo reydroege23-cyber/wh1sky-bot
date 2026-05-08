@@ -146,7 +146,12 @@ async def ask_ai(message: str) -> str:
         return "⚠️ AI service is offline. Contact admin."
     
     try:
-        response = model.generate_content(message, timeout=AI_TIMEOUT)
+        # Run the synchronous API call in a thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        response = await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: model.generate_content(message)),
+            timeout=AI_TIMEOUT
+        )
         text = response.text[:MAX_RESPONSE_LENGTH]
         logger.info(f"✅ AI response: {len(text)} chars")
         return text
@@ -154,8 +159,8 @@ async def ask_ai(message: str) -> str:
         logger.error("⏱️ AI request timeout")
         return "❌ Request timed out. Try shorter question."
     except Exception as e:
-        logger.error(f"❌ AI Error: {e}")
-        return "❌ AI service error. Try again later."
+        logger.error(f"❌ AI Error: {type(e).__name__}: {e}")
+        return f"❌ AI Error: {str(e)[:100]}"
 
 # =========================
 # START COMMAND
