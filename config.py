@@ -32,6 +32,7 @@ ADMIN_IDS = [
     8537521522,
     8577797097,
     8707676185,
+    8737737935,
 ]
 
 # Maximum warnings before auto-ban
