@@ -40,20 +40,31 @@ logger = logging.getLogger(__name__)
 # =========================
 
 try:
+    logger.info("🔧 Configuring Gemini AI...")
+    logger.info(f"📝 API Key present: {bool(GEMINI_API_KEY)}")
+    logger.info(f"🤖 Model: {AI_MODEL}")
+    
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(AI_MODEL)
+    logger.info("✅ Gemini configured")
     
-    # Test the API connection
+    # Test the API connection with better error handling
+    logger.info("🧪 Testing AI connection...")
     try:
         test_response = model.generate_content("Test", timeout=5)
-        if test_response and hasattr(test_response, 'text'):
+        if test_response and hasattr(test_response, 'text') and test_response.text:
             AI_AVAILABLE = True
             logger.info("✅ Gemini AI configured and tested successfully")
         else:
-            logger.warning("⚠️ AI test response invalid")
+            logger.warning(f"⚠️ AI test response invalid: {test_response}")
             AI_AVAILABLE = False
+    except TimeoutError:
+        logger.warning("⚠️ AI test timed out - network issue?")
+        AI_AVAILABLE = False
     except Exception as test_error:
-        logger.warning(f"⚠️ AI test failed: {test_error}")
+        logger.warning(f"⚠️ AI test failed: {type(test_error).__name__}: {test_error}")
+        import traceback
+        logger.warning(traceback.format_exc())
         AI_AVAILABLE = False
         
 except Exception as e:
@@ -324,9 +335,28 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Bot status check."""
-    status = "🟢 ONLINE" if AI_AVAILABLE else "🟡 DEGRADED"
-    await update.message.reply_text(f"{status}\n⚡ Response Time: Fast")
+    """Bot status check with diagnostics."""
+    try:
+        if AI_AVAILABLE:
+            status_msg = "🟢 **BOT STATUS: ONLINE**\n\n"
+            status_msg += "✅ Telegram: Connected\n"
+            status_msg += "✅ Gemini AI: Ready\n"
+            status_msg += "⚡ Response Time: Fast"
+        else:
+            status_msg = "🟡 **BOT STATUS: DEGRADED**\n\n"
+            status_msg += "✅ Telegram: Connected\n"
+            status_msg += "❌ Gemini AI: Offline\n\n"
+            status_msg += "**Possible causes:**\n"
+            status_msg += "• Invalid API key\n"
+            status_msg += "• Network connection issue\n"
+            status_msg += "• API rate limit exceeded\n"
+            status_msg += "• Gemini service unavailable\n\n"
+            status_msg += "Admins: Use `/test` to diagnose"
+        
+        await update.message.reply_text(status_msg, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Ping error: {e}")
+        await update.message.reply_text("❌ Ping failed")
 
 # =========================
 # TEST COMMAND (DIAGNOSTIC)
