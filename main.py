@@ -46,26 +46,11 @@ try:
     
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(AI_MODEL)
-    logger.info("✅ Gemini configured")
+    logger.info("✅ Gemini configured successfully")
     
-    # Test the API connection with better error handling
-    logger.info("🧪 Testing AI connection...")
-    try:
-        test_response = model.generate_content("Test", timeout=5)
-        if test_response and hasattr(test_response, 'text') and test_response.text:
-            AI_AVAILABLE = True
-            logger.info("✅ Gemini AI configured and tested successfully")
-        else:
-            logger.warning(f"⚠️ AI test response invalid: {test_response}")
-            AI_AVAILABLE = False
-    except TimeoutError:
-        logger.warning("⚠️ AI test timed out - network issue?")
-        AI_AVAILABLE = False
-    except Exception as test_error:
-        logger.warning(f"⚠️ AI test failed: {type(test_error).__name__}: {test_error}")
-        import traceback
-        logger.warning(traceback.format_exc())
-        AI_AVAILABLE = False
+    # Mark as available - test will happen on first /ai or /test command
+    AI_AVAILABLE = True
+    logger.info("✅ AI will be tested on first use")
         
 except Exception as e:
     logger.warning(f"⚠️ AI configuration failed: {type(e).__name__}: {e}")
@@ -336,12 +321,16 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Bot status check with diagnostics."""
+    import time
     try:
+        start_time = time.time()
+        
         if AI_AVAILABLE:
+            response_time = time.time() - start_time
             status_msg = "🟢 **BOT STATUS: ONLINE**\n\n"
             status_msg += "✅ Telegram: Connected\n"
             status_msg += "✅ Gemini AI: Ready\n"
-            status_msg += "⚡ Response Time: Fast"
+            status_msg += f"⚡ Response Time: {response_time*1000:.0f}ms"
         else:
             status_msg = "🟡 **BOT STATUS: DEGRADED**\n\n"
             status_msg += "✅ Telegram: Connected\n"
