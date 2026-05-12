@@ -46,7 +46,7 @@ try:
     
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(AI_MODEL)
-    logger.info("✅ Gemini configured successfully")
+    logger.info("✅ Gemini configured successfully with gemini-1.5-flash-latest")
     
     # Mark as available - test will happen on first /ai or /test command
     AI_AVAILABLE = True
@@ -147,6 +147,75 @@ def user_tracking(func):
         save_data(bot_data)
         return await func(update, context)
     return wrapper
+
+# =========================
+# RATE LIMITING (COOLDOWNS)
+# =========================
+
+# Track cooldowns per user: {"command_user_id": timestamp}
+command_cooldowns = {}
+ai_cooldowns = {}
+speak_cooldowns = {}
+
+def check_cooldown(user_id: int, cooldown_type: str, cooldown_seconds: int) -> tuple[bool, str]:
+    """Check if user is in cooldown. Returns (is_allowed, message)."""
+    if not ENABLE_RATE_LIMITING:
+        return True, ""
+    
+    # Admins always bypass cooldowns
+    if user_id in ADMIN_IDS:
+        return True, ""
+    
+    current_time = datetime.now()
+    cooldown_key = f"{cooldown_type}_{user_id}"
+    
+    # Get appropriate cooldown dict
+    if cooldown_type == "ai":
+        cooldown_dict = ai_cooldowns
+    elif cooldown_type == "speak":
+        cooldown_dict = speak_cooldowns
+    else:
+        cooldown_dict = command_cooldowns
+    
+    # Check if user has a cooldown
+    if cooldown_key in cooldown_dict:
+        last_time = cooldown_dict[cooldown_key]
+        time_diff = (current_time - last_time).total_seconds()
+        
+        if time_diff < cooldown_seconds:
+            remaining = cooldown_seconds - int(time_diff)
+            return False, f"⏱️ Cooldown active. Wait {remaining}s"
+    
+    # Update cooldown
+    cooldown_dict[cooldown_key] = current_time
+    return True, ""
+
+def rate_limit(cooldown_type: str = "command", cooldown_seconds: int = None):
+    """Rate limiting decorator for commands."""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            user_id = update.effective_user.id
+            
+            # Determine cooldown time
+            if cooldown_seconds is not None:
+                cooldown_time = cooldown_seconds
+            elif cooldown_type == "ai":
+                cooldown_time = AI_COOLDOWN
+            elif cooldown_type == "speak":
+                cooldown_time = SPEAK_COOLDOWN
+            else:
+                cooldown_time = COMMAND_COOLDOWN
+            
+            # Check cooldown
+            allowed, message = check_cooldown(user_id, cooldown_type, cooldown_time)
+            if not allowed:
+                await update.message.reply_text(message)
+                return
+            
+            return await func(update, context)
+        return wrapper
+    return decorator
 
 # =========================
 # AI FUNCTIONS (ENHANCED)
@@ -421,6 +490,7 @@ async def test_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # AI COMMAND
 # =========================
 
+@rate_limit(cooldown_type="ai")
 @authorized_only
 @user_tracking
 async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1610,6 +1680,7 @@ async def whisky_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Whisky error: {e}")
 
+@rate_limit(cooldown_type="command", cooldown_seconds=0)
 @user_tracking
 @admin_only
 async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
