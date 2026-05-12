@@ -72,21 +72,52 @@ def load_data():
             with open(DATA_FILE, 'r') as f:
                 data = json.load(f)
                 logger.info(f"📦 Loaded data for {len(data.get('stats', {}))} users")
+                
+                # ENSURE metadata structure is preserved on load
+                if "metadata" not in data:
+                    data["metadata"] = {}
+                if "authorized_users" not in data["metadata"]:
+                    data["metadata"]["authorized_users"] = []
+                
                 return data
         except Exception as e:
             logger.error(f"❌ Error loading data: {e}")
-    return {"warnings": {}, "stats": {}, "mutes": {}, "metadata": {}}
+    
+    default_data = {
+        "warnings": {}, 
+        "stats": {}, 
+        "mutes": {}, 
+        "metadata": {
+            "speak_mode": False,
+            "authorized_users": []  # PRESERVE authorized_users on default
+        }
+    }
+    return default_data
 
 def save_data(data):
-    """Save bot data with enhanced error handling."""
+    """Save bot data with enhanced error handling and data integrity."""
     try:
+        # ENSURE metadata structure is preserved before saving
+        if "metadata" not in data:
+            data["metadata"] = {}
+        if "authorized_users" not in data["metadata"]:
+            data["metadata"]["authorized_users"] = []
+        
+        logger.info(f"💾 Saving data - {len(data.get('metadata', {}).get('authorized_users', []))} authorized users")
+        
         with open(DATA_FILE, 'w') as f:
             json.dump(data, f, indent=4)
+        
+        logger.info("✅ Data saved successfully")
     except Exception as e:
         logger.error(f"❌ Error saving data: {e}")
 
 # Load initial data
 bot_data = load_data()
+
+# Log authorized users on startup
+auth_users = bot_data.get("metadata", {}).get("authorized_users", [])
+logger.info(f"✅ BOT STARTED - Loaded {len(auth_users)} authorized users: {auth_users}")
 
 # =========================
 # DECORATORS (ENHANCED)
