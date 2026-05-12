@@ -298,6 +298,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # STATS COMMAND
 # =========================
 
+@authorized_only
 @user_tracking
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced stats command."""
@@ -420,6 +421,7 @@ async def test_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # AI COMMAND
 # =========================
 
+@authorized_only
 @user_tracking
 async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /ai command to ask Gemini AI."""
@@ -458,7 +460,8 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(response)
         
         # Update statistics
-        bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
+        if user_id in bot_data["stats"]:
+            bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
         logger.info(f"✅ AI query successful from {user_id}")
         save_data(bot_data)
         
@@ -507,7 +510,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     await update.message.reply_text(response)
                 
-                bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
+                if user_id in bot_data["stats"]:
+                    bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
                 logger.info(f"✅ Speak mode - AI response to {user_id}")
                 save_data(bot_data)
                 return
@@ -831,24 +835,60 @@ async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @admin_only
 async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ban user."""
+    """Ban user - STRICT: Requires /ban @username or reply ONLY."""
     try:
-        user_id, username = await get_user_from_command(update, context)
+        # STRICT: Check if this is a reply message context
+        # If replying, allow ban without additional args
+        if update.message.reply_to_message:
+            user_id = update.message.reply_to_message.from_user.id
+            username = update.message.reply_to_message.from_user.first_name or "User"
+        else:
+            # NOT replying: MUST have explicit @username in args
+            if not context.args:
+                await update.message.reply_text(
+                    "❌ Please reply to a message or provide a username.\\n"
+                    "Example: `/ban @username`"
+                )
+                return
+            
+            arg = context.args[0]
+            
+            # MUST start with @
+            if not arg.startswith('@'):
+                await update.message.reply_text(
+                    "❌ Please mention a user with @username.\\n"
+                    "Example: `/ban @username`"
+                )
+                return
+            
+            username = arg[1:]  # Remove @
+            
+            try:
+                # Try to resolve @username
+                user = await context.bot.get_chat_member(
+                    chat_id=update.effective_chat.id,
+                    user_id=f"@{username}"
+                )
+                if user:
+                    user_id = user.user.id
+                else:
+                    await update.message.reply_text(f"❌ User @{username} not found in chat")
+                    return
+            except Exception as e:
+                logger.error(f"Failed to resolve @{username}: {e}")
+                await update.message.reply_text(f"❌ User @{username} not found")
+                return
         
-        if not user_id:
-            await update.message.reply_text(
-                "❌ Please reply to a message or mention a username.\n"
-                "Example: `/ban @username`"
-            )
-            return
-        
+        # Check if admin
         if user_id in ADMIN_IDS:
             await update.message.reply_text("❌ Cannot ban admins.")
             return
 
+        # BAN THE USER
         await context.bot.ban_chat_member(update.effective_chat.id, user_id)
         await update.message.reply_text(f"🚫 {username} banned")
-        logger.info(f"🚫 {user_id} banned")
+        logger.info(f"🚫 {user_id} banned by {update.effective_user.id}")
+        
     except Exception as e:
         logger.error(f"Ban error: {e}")
         await update.message.reply_text("❌ Failed to ban user")
@@ -1040,6 +1080,7 @@ async def authorized_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Authorized list error: {e}")
         await update.message.reply_text(f"❌ Error: {e}")
 
+@authorized_only
 @user_tracking
 async def roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Roll dice command."""
@@ -1062,6 +1103,7 @@ async def roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Roll error: {e}")
         await update.message.reply_text("❌ Failed to roll dice")
 
+@authorized_only
 @user_tracking
 async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Flip a coin."""
@@ -1075,6 +1117,7 @@ async def coin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Coin flip error: {e}")
         await update.message.reply_text("❌ Failed to flip coin")
 
+@authorized_only
 @user_tracking
 async def calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Simple calculator."""
@@ -1098,6 +1141,7 @@ async def calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Calc error: {e}")
         await update.message.reply_text("❌ Invalid calculation")
 
+@authorized_only
 @user_tracking
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Echo message."""
@@ -1117,6 +1161,7 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Echo error: {e}")
         await update.message.reply_text("❌ Failed to echo message")
 
+@authorized_only
 @user_tracking
 async def time_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show current time."""
@@ -1172,6 +1217,7 @@ async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
         import traceback
         logger.error(traceback.format_exc())
 
+@authorized_only
 @user_tracking
 async def eightball(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Magic 8 ball."""
@@ -1190,6 +1236,7 @@ async def eightball(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"8ball error: {e}")
         await update.message.reply_text("❌ Magic ball malfunction")
 
+@authorized_only
 @user_tracking
 async def reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Reverse text."""
@@ -1208,6 +1255,7 @@ async def reverse(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Reverse error: {e}")
         await update.message.reply_text("❌ Failed to reverse")
 
+@authorized_only
 @user_tracking
 async def fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Random interesting fact."""
@@ -1232,6 +1280,7 @@ async def fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Fact error: {e}")
         await update.message.reply_text("❌ Failed to fetch fact")
 
+@authorized_only
 @user_tracking
 async def morse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Convert text to Morse code."""
@@ -1256,6 +1305,7 @@ async def morse(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Morse error: {e}")
         await update.message.reply_text("❌ Failed to convert")
 
+@authorized_only
 @user_tracking
 async def random_num(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Generate random number."""
@@ -1429,6 +1479,7 @@ async def members_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Members error: {e}")
         await update.message.reply_text("❌ Failed to get member count")
 
+@authorized_only
 @user_tracking
 async def quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get random inspirational quote."""
@@ -1453,6 +1504,7 @@ async def quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Quote error: {e}")
         await update.message.reply_text("❌ Failed to get quote")
 
+@authorized_only
 @user_tracking
 async def dice_roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Roll a dice (1-6)."""
@@ -1558,6 +1610,9 @@ async def whisky_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enable Gemini speak mode for admins."""
     try:
+        # Ensure metadata exists
+        if "metadata" not in bot_data:
+            bot_data["metadata"] = {}
         bot_data["metadata"]["speak_mode"] = True
         save_data(bot_data)
         await update.message.reply_text("🤖 SPEAK MODE ENABLED\n\nI will now respond to all messages with AI")
@@ -1571,6 +1626,9 @@ async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def stop_speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Disable Gemini speak mode."""
     try:
+        # Ensure metadata exists
+        if "metadata" not in bot_data:
+            bot_data["metadata"] = {}
         bot_data["metadata"]["speak_mode"] = False
         save_data(bot_data)
         await update.message.reply_text("🔇 SPEAK MODE DISABLED\n\nBack to command mode")
@@ -1652,7 +1710,7 @@ def setup_bot():
     app.add_handler(CommandHandler("unmute", unmute))
     app.add_handler(CommandHandler("unshut", unmute))
     app.add_handler(CommandHandler("kick", kick))
-    app.add_handler(CommandHandler("iloveu", ban))
+    app.add_handler(CommandHandler("iloveu", iloveu))
     app.add_handler(CommandHandler("unban", unban))
     app.add_handler(CommandHandler("info", user_info))
     app.add_handler(CommandHandler("admins", admins))

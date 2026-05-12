@@ -494,28 +494,57 @@ async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to kick user")
 
 @admin_only
-async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ban user."""
+async def iloveu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ban user - STRICT: /iloveu @username ONLY (NOT replies, NOT context guessing)."""
     try:
-        user_id, username = await get_user_from_command(update, context)
-        
-        if not user_id:
-            await update.message.reply_text(
-                "❌ Please reply to a message or mention a username.\n"
-                "Example: `/ban @username`"
-            )
+        # ❌ REJECT: If this is a reply message
+        if update.message.reply_to_message:
+            logger.info(f"❌ Ban ignored: reply message detected")
             return
         
+        # ❌ REJECT: No arguments provided
+        if not context.args:
+            logger.info(f"❌ Ban ignored: no args provided")
+            return
+        
+        arg = context.args[0]
+        
+        # ❌ REJECT: Argument doesn't start with @
+        if not arg.startswith('@'):
+            logger.info(f"❌ Ban ignored: arg '{arg}' doesn't start with @")
+            return
+        
+        # ✅ VALID: Extract username
+        username = arg[1:]  # Remove @
+        
+        try:
+            # Try to resolve @username to user_id
+            user = await context.bot.get_chat_member(
+                chat_id=update.effective_chat.id,
+                user_id=f"@{username}"
+            )
+            if user:
+                user_id = user.user.id
+            else:
+                logger.info(f"❌ Ban ignored: @{username} not found in chat")
+                return
+        except Exception as e:
+            logger.error(f"Failed to resolve @{username}: {e}")
+            logger.info(f"❌ Ban ignored: resolution error for @{username}")
+            return
+        
+        # ❌ REJECT: Target is admin
         if user_id in ADMIN_IDS:
-            await update.message.reply_text("❌ Cannot ban admins.")
+            logger.warning(f"⚠️ Attempt to ban admin @{username}")
             return
 
+        # ✅ EXECUTE: BAN THE USER
         await context.bot.ban_chat_member(update.effective_chat.id, user_id)
-        await update.message.reply_text(f"🚫 {username} banned")
-        logger.info(f"🚫 {user_id} banned")
+        await update.message.reply_text(f"🚫 @{username} banned")
+        logger.critical(f"🚫 BANNED: @{username} ({user_id}) by admin {update.effective_user.id}")
+        
     except Exception as e:
         logger.error(f"Ban error: {e}")
-        await update.message.reply_text("❌ Failed to ban user")
 
 @admin_only
 async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
