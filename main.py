@@ -914,6 +914,11 @@ async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to unban user")
 
 @admin_only
+async def iloveu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Permanently ban user (alias for /ban)."""
+    await ban(update, context)
+
+@admin_only
 async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get user information."""
     try:
