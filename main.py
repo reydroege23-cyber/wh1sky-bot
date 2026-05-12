@@ -1723,6 +1723,15 @@ async def whisky_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Whisky error: {e}")
 
+@user_tracking
+async def daddy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Special command - Whisky The Great."""
+    try:
+        await update.message.reply_text("👑 Whisky The Great")
+        logger.info(f"👑 {update.effective_user.id} triggered daddy")
+    except Exception as e:
+        logger.error(f"Daddy error: {e}")
+
 @rate_limit(cooldown_type="command", cooldown_seconds=0)
 @user_tracking
 @admin_only
@@ -2352,6 +2361,7 @@ def setup_bot():
     app.add_handler(CommandHandler("Arya", arya))
     app.add_handler(CommandHandler("kurdishezdi", kurdishezdi))
     app.add_handler(CommandHandler("Whisky", whisky_cmd))
+    app.add_handler(CommandHandler("daddy", daddy))
     app.add_handler(CommandHandler("speak", speak))
     app.add_handler(CommandHandler("stop_speak", stop_speak))
     app.add_handler(CommandHandler("unSpeak", unspeak))
