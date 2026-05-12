@@ -410,8 +410,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # STATS COMMAND
 # =========================
 
-@unauthorized_blocked
 @user_tracking
+@unauthorized_blocked
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced stats command."""
     user_id = str(update.effective_user.id)
@@ -533,9 +533,9 @@ async def test_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # AI COMMAND
 # =========================
 
+@user_tracking
 @rate_limit(cooldown_type="ai")
 @unauthorized_blocked
-@user_tracking
 async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /ai command to ask Gemini AI."""
     user_id = str(update.effective_user.id)
@@ -1297,8 +1297,8 @@ async def time_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Time error: {e}")
         await update.message.reply_text("❌ Failed to get time")
 
-@unauthorized_blocked
 @user_tracking
+@unauthorized_blocked
 async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tell a random Rape with target user's name - only works on user messages, not bots."""
     import random
@@ -1766,8 +1766,8 @@ async def unspeak(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # FUN COMMANDS (NEW)
 # =========================
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def roast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Roast a user with a funny insult."""
     roasts = [
@@ -1797,8 +1797,8 @@ async def roast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Roast error: {e}")
         await update.message.reply_text("❌ Failed to roast")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def ship(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Calculate love percentage between two users."""
     try:
@@ -1839,8 +1839,8 @@ async def ship(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Ship error: {e}")
         await update.message.reply_text("❌ Failed to ship")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def rate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rate something 1-10."""
     try:
@@ -1862,8 +1862,8 @@ async def rate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Rate error: {e}")
         await update.message.reply_text("❌ Failed to rate")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def meme(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get a random meme description."""
     memes = [
@@ -1886,8 +1886,8 @@ async def meme(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Meme error: {e}")
         await update.message.reply_text("❌ Failed to get meme")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def truth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get a random truth question."""
     truths = [
@@ -1910,8 +1910,8 @@ async def truth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Truth error: {e}")
         await update.message.reply_text("❌ Failed to get truth")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def dare(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get a random dare challenge."""
     dares = [
@@ -1934,8 +1934,8 @@ async def dare(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Dare error: {e}")
         await update.message.reply_text("❌ Failed to get dare")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def compliment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Give someone a compliment."""
     compliments = [
@@ -1965,8 +1965,8 @@ async def compliment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Compliment error: {e}")
         await update.message.reply_text("❌ Failed to compliment")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def insult(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Give someone a funny insult."""
     insults = [
@@ -1996,8 +1996,8 @@ async def insult(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Insult error: {e}")
         await update.message.reply_text("❌ Failed to insult")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def ascii_art(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Convert text to ASCII art style."""
     try:
@@ -2029,8 +2029,8 @@ async def ascii_art(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"ASCII error: {e}")
         await update.message.reply_text("❌ Failed to create ASCII art")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def hack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Fake hacking animation for a user."""
     try:
@@ -2063,8 +2063,8 @@ async def hack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Hack error: {e}")
         await update.message.reply_text("❌ Failed to hack")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def fancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Convert text to fancy fonts."""
     fancy_map = {
@@ -2096,8 +2096,8 @@ async def fancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Fancy error: {e}")
         await update.message.reply_text("❌ Failed to fancy")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def hotrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rate someone's hotness percentage."""
     try:
@@ -2133,8 +2133,8 @@ async def hotrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Hotrate error: {e}")
         await update.message.reply_text("❌ Failed to rate hotness")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def iq_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Generate a random IQ score for a user."""
     try:
@@ -2172,8 +2172,8 @@ async def iq_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"IQ error: {e}")
         await update.message.reply_text("❌ Failed to check IQ")
 
-@authorized_only
 @user_tracking
+@authorized_only
 async def gayrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rate someone's "gay" (fun) percentage - just a meme stat."""
     try:
