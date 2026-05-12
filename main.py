@@ -20,6 +20,9 @@ from pathlib import Path
 from functools import wraps
 from config import *
 import asyncio
+import random
+import base64
+import traceback
 
 # =========================
 # LOGGING SETUP (ENHANCED)
@@ -1720,6 +1723,493 @@ async def unspeak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await stop_speak(update, context)
 
 # =========================
+# FUN COMMANDS (NEW)
+# =========================
+
+@authorized_only
+@user_tracking
+async def roast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Roast a user with a funny insult."""
+    roasts = [
+        "You're so boring, even your wifi disconnects from you.",
+        "You bring everyone so much joy... when you leave the room.",
+        "I'd roast you harder, but my mommy said I can't bully people with disabilities.",
+        "You're the reason the gene pool needs a lifeguard.",
+        "If you were a vegetable, you'd be a radish... because you're absolutely radishing in negativity.",
+        "You're like a cloud. When you disappear, it's a beautiful day.",
+        "I'd explain it to you, but I don't have a crayon small enough.",
+        "You're proof that evolution can go in reverse.",
+        "Keep rolling your eyes, maybe you'll find a brain back there.",
+        "You're not stupid, you just have bad luck when you think."
+    ]
+    try:
+        if update.message.reply_to_message:
+            target_name = update.message.reply_to_message.from_user.first_name or "User"
+        elif context.args:
+            target_name = context.args[0].replace('@', '')
+        else:
+            target_name = "you"
+        
+        roast_msg = random.choice(roasts)
+        await update.message.reply_text(f"🔥 Hey {target_name}:\n\n{roast_msg}")
+        logger.info(f"🔥 {update.effective_user.id} roasted {target_name}")
+    except Exception as e:
+        logger.error(f"Roast error: {e}")
+        await update.message.reply_text("❌ Failed to roast")
+
+@authorized_only
+@user_tracking
+async def ship(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Calculate love percentage between two users."""
+    try:
+        if not context.args or len(context.args) < 2:
+            await update.message.reply_text(
+                "❌ Usage: /ship @user1 @user2\n"
+                "Example: `/ship @john @jane`"
+            )
+            return
+        
+        user1 = context.args[0].replace('@', '')
+        user2 = context.args[1].replace('@', '')
+        
+        # Generate "random" but consistent score based on names
+        score = (hash(user1 + user2) % 101)
+        
+        # Create love meter
+        filled = score // 10
+        empty = 10 - filled
+        meter = "❤️" * filled + "🤍" * empty
+        
+        message = f"💑 **{user1}** + **{user2}**\n\n"
+        message += f"{meter}\n"
+        message += f"**Love Score: {score}%**\n\n"
+        
+        if score > 80:
+            message += "🔥 Perfect match! Better start planning the wedding!"
+        elif score > 60:
+            message += "💕 Great chemistry! You two would be cute together."
+        elif score > 40:
+            message += "😊 Could work out with effort."
+        else:
+            message += "😬 Maybe just stay friends?"
+        
+        await update.message.reply_text(message, parse_mode="Markdown")
+        logger.info(f"💑 {update.effective_user.id} shipped {user1} & {user2}")
+    except Exception as e:
+        logger.error(f"Ship error: {e}")
+        await update.message.reply_text("❌ Failed to ship")
+
+@authorized_only
+@user_tracking
+async def rate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Rate something 1-10."""
+    try:
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Usage: /rate <text>\n"
+                "Example: `/rate pizza`"
+            )
+            return
+        
+        text = " ".join(context.args)
+        score = (hash(text) % 10) + 1  # 1-10 rating
+        
+        stars = "⭐" * score + "☆" * (10 - score)
+        
+        await update.message.reply_text(f"\n📊 **Rating: {text}**\n\n{stars}\n\n**Score: {score}/10**", parse_mode="Markdown")
+        logger.info(f"⭐ {update.effective_user.id} rated '{text}'")
+    except Exception as e:
+        logger.error(f"Rate error: {e}")
+        await update.message.reply_text("❌ Failed to rate")
+
+@authorized_only
+@user_tracking
+async def meme(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get a random meme description."""
+    memes = [
+        "When you're trying to look busy at work but your boss walks by.",
+        "Me pretending to work while my boss is looking.",
+        "POV: You're about to fail your exam.",
+        "When someone asks if you're okay and you say 'yeah I'm fine'.",
+        "Me: *exists* | My brain at 3am: Remember that embarrassing thing you did in 3rd grade?",
+        "Monday: exists | Me:",
+        "When the teacher asks who didn't do homework and you look straight ahead.",
+        "Me explaining why I'm late to work: [complicated excuse]",
+        "POV: You just realized it's been raining the entire time.",
+        "When someone says 'relax' to you:"
+    ]
+    try:
+        meme_text = random.choice(memes)
+        await update.message.reply_text(f"😂 **MEME:**\n\n{meme_text}")
+        logger.info(f"😂 {update.effective_user.id} got a meme")
+    except Exception as e:
+        logger.error(f"Meme error: {e}")
+        await update.message.reply_text("❌ Failed to get meme")
+
+@authorized_only
+@user_tracking
+async def truth(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get a random truth question."""
+    truths = [
+        "What's your biggest secret?",
+        "Who do you have a crush on?",
+        "What's something you've never told anyone?",
+        "What's your biggest fear?",
+        "Have you ever cheated on someone?",
+        "What's the most embarrassing thing you've done?",
+        "What would you never admit to your parents?",
+        "What's your guilty pleasure?",
+        "Have you ever lied to your best friend?",
+        "What's something you regret doing?"
+    ]
+    try:
+        truth_q = random.choice(truths)
+        await update.message.reply_text(f"🎯 **TRUTH:**\n\n{truth_q}", parse_mode="Markdown")
+        logger.info(f"🎯 {update.effective_user.id} got a truth question")
+    except Exception as e:
+        logger.error(f"Truth error: {e}")
+        await update.message.reply_text("❌ Failed to get truth")
+
+@authorized_only
+@user_tracking
+async def dare(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get a random dare challenge."""
+    dares = [
+        "Sing your favorite song out loud.",
+        "Do 10 pushups right now.",
+        "Text your crush and ask them out.",
+        "Call your mom and tell her you love her.",
+        "Speak in an accent for the next 5 minutes.",
+        "Do a funny dance and film it.",
+        "Imitate someone in the chat.",
+        "Pretend to be a news anchor for 1 minute.",
+        "Send a funny meme to your group chat.",
+        "Post a selfie making a weird face."
+    ]
+    try:
+        dare_msg = random.choice(dares)
+        await update.message.reply_text(f"😈 **DARE:**\n\n{dare_msg}", parse_mode="Markdown")
+        logger.info(f"😈 {update.effective_user.id} got a dare")
+    except Exception as e:
+        logger.error(f"Dare error: {e}")
+        await update.message.reply_text("❌ Failed to get dare")
+
+@authorized_only
+@user_tracking
+async def compliment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Give someone a compliment."""
+    compliments = [
+        "You're an awesome person!",
+        "You light up the room!",
+        "You're a great listener!",
+        "You have a great sense of humor!",
+        "You're a strong person!",
+        "Your perspective is refreshing!",
+        "You're incredibly thoughtful!",
+        "You're a gift to those around you!",
+        "You're a smart cookie!",
+        "You're a real go-getter!"
+    ]
+    try:
+        if update.message.reply_to_message:
+            target_name = update.message.reply_to_message.from_user.first_name or "User"
+        elif context.args:
+            target_name = context.args[0].replace('@', '')
+        else:
+            target_name = "you"
+        
+        compliment_msg = random.choice(compliments)
+        await update.message.reply_text(f"💝 Hey {target_name}:\n\n{compliment_msg}")
+        logger.info(f"💝 {update.effective_user.id} complimented {target_name}")
+    except Exception as e:
+        logger.error(f"Compliment error: {e}")
+        await update.message.reply_text("❌ Failed to compliment")
+
+@authorized_only
+@user_tracking
+async def insult(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Give someone a funny insult."""
+    insults = [
+        "You're like a human version of a bad wifi connection.",
+        "If you were a vegetable, you'd be a carrot... because you're pretty orange.",
+        "You're the human equivalent of a participation trophy.",
+        "You make a better door than a window.",
+        "You're about as useful as a chocolate teapot.",
+        "I'd agree with you but then we'd both be wrong.",
+        "You're the reason God created the mute button.",
+        "You're so dumb, you thought a QB was a Quickback.",
+        "You're not the brightest bulb in the box.",
+        "You're a perfect example of why some animals eat their young."
+    ]
+    try:
+        if update.message.reply_to_message:
+            target_name = update.message.reply_to_message.from_user.first_name or "User"
+        elif context.args:
+            target_name = context.args[0].replace('@', '')
+        else:
+            target_name = "you"
+        
+        insult_msg = random.choice(insults)
+        await update.message.reply_text(f"😬 Hey {target_name}:\n\n{insult_msg}")
+        logger.info(f"😬 {update.effective_user.id} insulted {target_name}")
+    except Exception as e:
+        logger.error(f"Insult error: {e}")
+        await update.message.reply_text("❌ Failed to insult")
+
+@authorized_only
+@user_tracking
+async def ascii_art(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Convert text to ASCII art style."""
+    try:
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Usage: /ascii <text>\n"
+                "Example: `/ascii HELLO`"
+            )
+            return
+        
+        text = " ".join(context.args).upper()[:10]  # Limit to 10 chars
+        
+        ascii_map = {
+            'A': ' █ ', 'B': '██', 'C': ' █ ', 'D': '██ ', 'E': '███',
+            'F': '██ ', 'G': ' █ ', 'H': '█ █', 'I': ' █ ', 'J': '  █',
+            'K': '█ █', 'L': '█  ', 'M': '█ █', 'N': '█ █', 'O': ' █ ',
+            'P': '██ ', 'Q': ' █ ', 'R': '██ ', 'S': ' ██', 'T': '███',
+            'U': '█ █', 'V': '█ █', 'W': '█ █', 'X': '█ █', 'Y': '█ █',
+            'Z': '███', ' ': '   '
+        }
+        
+        result = ""
+        for char in text:
+            result += ascii_map.get(char, '█')
+        
+        await update.message.reply_text(f"```\n{result}\n```", parse_mode="Markdown")
+        logger.info(f"🎨 {update.effective_user.id} created ASCII art")
+    except Exception as e:
+        logger.error(f"ASCII error: {e}")
+        await update.message.reply_text("❌ Failed to create ASCII art")
+
+@authorized_only
+@user_tracking
+async def hack(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fake hacking animation for a user."""
+    try:
+        if update.message.reply_to_message:
+            target_name = update.message.reply_to_message.from_user.first_name or "User"
+        elif context.args:
+            target_name = context.args[0].replace('@', '')
+        else:
+            target_name = "you"
+        
+        hack_msg = f"🔓 **HACKING {target_name.upper()}**\n\n"
+        hack_msg += "```\n"
+        hack_msg += "[████████░░] 56%\n\n"
+        hack_msg += "➜ Accessing files...\n"
+        hack_msg += "➜ Bypassing firewall...\n"
+        hack_msg += "➜ Downloading data...\n\n"
+        hack_msg += "[**HACK COMPLETE**]\n\n"
+        hack_msg += "Files found:\n"
+        hack_msg += "├─ selfies.zip\n"
+        hack_msg += "├─ passwords.txt\n"
+        hack_msg += "├─ memes/\n"
+        hack_msg += "├─ secrets.doc\n"
+        hack_msg += "└─ cringe_photos/\n"
+        hack_msg += "```\n\n"
+        hack_msg += "⚠️ Just kidding! This is a fake hack animation! 😄"
+        
+        await update.message.reply_text(hack_msg, parse_mode="Markdown")
+        logger.info(f"🔓 {update.effective_user.id} hacked {target_name}")
+    except Exception as e:
+        logger.error(f"Hack error: {e}")
+        await update.message.reply_text("❌ Failed to hack")
+
+@authorized_only
+@user_tracking
+async def fancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Convert text to fancy fonts."""
+    fancy_map = {
+        'a': '𝒂', 'b': '𝒃', 'c': '𝒄', 'd': '𝒅', 'e': '𝒆', 'f': '𝒇',
+        'g': '𝒈', 'h': '𝒉', 'i': '𝒊', 'j': '𝒋', 'k': '𝒌', 'l': '𝒍',
+        'm': '𝒎', 'n': '𝒏', 'o': '𝒐', 'p': '𝒑', 'q': '𝒒', 'r': '𝒓',
+        's': '𝒔', 't': '𝒕', 'u': '𝒖', 'v': '𝒗', 'w': '𝒘', 'x': '𝒙',
+        'y': '𝒚', 'z': '𝒛',
+        'A': '𝑨', 'B': '𝑩', 'C': '𝑪', 'D': '𝑫', 'E': '𝑬', 'F': '𝑭',
+        'G': '𝑮', 'H': '𝑯', 'I': '𝑰', 'J': '𝑱', 'K': '𝑲', 'L': '𝑳',
+        'M': '𝑴', 'N': '𝑵', 'O': '𝑶', 'P': '𝑷', 'Q': '𝑸', 'R': '𝑹',
+        'S': '𝑺', 'T': '𝑻', 'U': '𝑼', 'V': '𝑽', 'W': '𝑾', 'X': '𝑿',
+        'Y': '𝒀', 'Z': '𝒁'
+    }
+    try:
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Usage: /fancy <text>\n"
+                "Example: `/fancy hello`"
+            )
+            return
+        
+        text = " ".join(context.args)
+        fancy_text = "".join([fancy_map.get(char, char) for char in text])
+        
+        await update.message.reply_text(f"✨ **{fancy_text}**", parse_mode="Markdown")
+        logger.info(f"✨ {update.effective_user.id} used fancy fonts")
+    except Exception as e:
+        logger.error(f"Fancy error: {e}")
+        await update.message.reply_text("❌ Failed to fancy")
+
+@authorized_only
+@user_tracking
+async def hotrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Rate someone's hotness percentage."""
+    try:
+        if update.message.reply_to_message:
+            target_name = update.message.reply_to_message.from_user.first_name or "User"
+            target_id = update.message.reply_to_message.from_user.id
+        elif context.args:
+            target_name = context.args[0].replace('@', '')
+            target_id = hash(target_name)
+        else:
+            target_name = "you"
+            target_id = update.effective_user.id
+        
+        score = (hash(str(target_id)) % 101)
+        fire = "🔥" * (score // 10)
+        
+        message = f"🌡️ **HOTNESS RATING: {target_name}**\n\n"
+        message += f"{fire}\n"
+        message += f"**{score}% 🔥**\n\n"
+        
+        if score > 90:
+            message += "🥵 SMOKING HOT!!!"
+        elif score > 75:
+            message += "😍 Very attractive!"
+        elif score > 50:
+            message += "😊 Pretty cute!"
+        else:
+            message += "👀 Decent looking."
+        
+        await update.message.reply_text(message, parse_mode="Markdown")
+        logger.info(f"🌡️ {update.effective_user.id} rated {target_name}'s hotness")
+    except Exception as e:
+        logger.error(f"Hotrate error: {e}")
+        await update.message.reply_text("❌ Failed to rate hotness")
+
+@authorized_only
+@user_tracking
+async def iq_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate a random IQ score for a user."""
+    try:
+        if update.message.reply_to_message:
+            target_name = update.message.reply_to_message.from_user.first_name or "User"
+            target_id = update.message.reply_to_message.from_user.id
+        elif context.args:
+            target_name = context.args[0].replace('@', '')
+            target_id = hash(target_name)
+        else:
+            target_name = "you"
+            target_id = update.effective_user.id
+        
+        iq_score = (hash(str(target_id)) % 200) + 50  # 50-250 IQ
+        
+        message = f"🧠 **IQ SCORE: {target_name}**\n\n"
+        message += f"**IQ: {iq_score}**\n\n"
+        
+        if iq_score > 160:
+            message += "🤓 GENIUS LEVEL!"
+        elif iq_score > 130:
+            message += "📚 Very intelligent!"
+        elif iq_score > 100:
+            message += "✅ Above average!"
+        elif iq_score > 85:
+            message += "😊 Average intelligence."
+        elif iq_score > 70:
+            message += "🤔 Below average."
+        else:
+            message += "😅 Might need to study more!"
+        
+        await update.message.reply_text(message, parse_mode="Markdown")
+        logger.info(f"🧠 {update.effective_user.id} checked {target_name}'s IQ")
+    except Exception as e:
+        logger.error(f"IQ error: {e}")
+        await update.message.reply_text("❌ Failed to check IQ")
+
+@authorized_only
+@user_tracking
+async def gayrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Rate someone's "gay" (fun) percentage - just a meme stat."""
+    try:
+        if update.message.reply_to_message:
+            target_name = update.message.reply_to_message.from_user.first_name or "User"
+            target_id = update.message.reply_to_message.from_user.id
+        elif context.args:
+            target_name = context.args[0].replace('@', '')
+            target_id = hash(target_name)
+        else:
+            target_name = "you"
+            target_id = update.effective_user.id
+        
+        score = (hash(str(target_id)) % 101)
+        rainbow = "🌈" * (score // 10)
+        
+        message = f"🌈 **FUN VIBES: {target_name}**\n\n"
+        message += f"{rainbow}\n"
+        message += f"**{score}% 🎉**\n\n"
+        message += "(This is just a meme stat for fun!)"
+        
+        await update.message.reply_text(message, parse_mode="Markdown")
+        logger.info(f"🌈 {update.effective_user.id} checked {target_name}'s fun vibes")
+    except Exception as e:
+        logger.error(f"Gayrate error: {e}")
+        await update.message.reply_text("❌ Failed to rate fun vibes")
+
+@user_tracking
+async def sleep_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a sleep message."""
+    try:
+        await update.message.reply_text(
+            "😴 **GOODNIGHT!**\n\n"
+            "Get some rest! 🛌\n"
+            "Sweet dreams! 💤\n\n"
+            "Sleep well, see you tomorrow! 🌙",
+            parse_mode="Markdown"
+        )
+        logger.info(f"😴 {update.effective_user.id} went to sleep")
+    except Exception as e:
+        logger.error(f"Sleep error: {e}")
+        await update.message.reply_text("❌ Failed to send sleep message")
+
+@user_tracking
+async def goodmorning_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a good morning message."""
+    try:
+        await update.message.reply_text(
+            "☀️ **GOOD MORNING!**\n\n"
+            "Rise and shine! ✨\n"
+            "Have an amazing day! 💪\n\n"
+            "Let's make it a great one! 🚀",
+            parse_mode="Markdown"
+        )
+        logger.info(f"☀️ {update.effective_user.id} got a morning greeting")
+    except Exception as e:
+        logger.error(f"Goodmorning error: {e}")
+        await update.message.reply_text("❌ Failed to send morning message")
+
+@user_tracking
+async def goodnight_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a good night message."""
+    try:
+        await update.message.reply_text(
+            "🌙 **GOODNIGHT!**\n\n"
+            "Sleep tight! 🛌\n"
+            "Don't let the bedbugs bite! 🪳😄\n"
+            "See you in the morning! ⭐",
+            parse_mode="Markdown"
+        )
+        logger.info(f"🌙 {update.effective_user.id} got a night message")
+    except Exception as e:
+        logger.error(f"Goodnight error: {e}")
+        await update.message.reply_text("❌ Failed to send night message")
+
+# =========================
 # ERROR HANDLER
 # =========================
 
@@ -1825,6 +2315,25 @@ def setup_bot():
     app.add_handler(CommandHandler("speak", speak))
     app.add_handler(CommandHandler("stop_speak", stop_speak))
     app.add_handler(CommandHandler("unSpeak", unspeak))
+    
+    # New Fun Commands
+    app.add_handler(CommandHandler("roast", roast))
+    app.add_handler(CommandHandler("ship", ship))
+    app.add_handler(CommandHandler("rate", rate_cmd))
+    app.add_handler(CommandHandler("meme", meme))
+    app.add_handler(CommandHandler("truth", truth))
+    app.add_handler(CommandHandler("dare", dare))
+    app.add_handler(CommandHandler("compliment", compliment))
+    app.add_handler(CommandHandler("insult", insult))
+    app.add_handler(CommandHandler("ascii", ascii_art))
+    app.add_handler(CommandHandler("hack", hack))
+    app.add_handler(CommandHandler("fancy", fancy))
+    app.add_handler(CommandHandler("hotrate", hotrate))
+    app.add_handler(CommandHandler("iq", iq_rate))
+    app.add_handler(CommandHandler("gayrate", gayrate))
+    app.add_handler(CommandHandler("sleep", sleep_cmd))
+    app.add_handler(CommandHandler("goodmorning", goodmorning_cmd))
+    app.add_handler(CommandHandler("goodnight", goodnight_cmd))
     
     # Messages (must be last)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
