@@ -95,6 +95,7 @@ MAX_RESPONSE_LENGTH = 4096  # Telegram limit
 # COOLDOWN SETTINGS (per user)
 # =========================
 
+ENABLE_RATE_LIMITING = True  # Enable/disable cooldown system
 AI_COOLDOWN = 5  # seconds between /ai commands
 SPEAK_COOLDOWN = 3  # seconds between speak mode replies
 COMMAND_COOLDOWN = 2  # seconds between other commands
