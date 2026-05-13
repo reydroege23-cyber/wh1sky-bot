@@ -1683,10 +1683,10 @@ async def daddy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @user_tracking
 async def waleed(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Special command - football kid."""
+    """Special command - ZAXO BEST RAAAHHH."""
     try:
-        await update.message.reply_text("⚽ football kid")
-        logger.info(f"⚽ {update.effective_user.id} triggered waleed")
+        await update.message.reply_text("ZAXO BEST RAAAHHH 🇵🇱")
+        logger.info(f"🇵🇱 {update.effective_user.id} triggered waleed")
     except Exception as e:
         logger.error(f"Waleed error: {e}")
 
