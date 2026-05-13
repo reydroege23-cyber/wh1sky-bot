@@ -1461,6 +1461,36 @@ async def fact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to fetch fact")
 
 @user_tracking
+async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate a weird dream story using AI."""
+    try:
+        if not AI_AVAILABLE:
+            await update.message.reply_text("🤖 AI service offline")
+            return
+        
+        # Show thinking message
+        thinking_msg = await update.message.reply_text("😴 Generating your dream...")
+        
+        # Generate dream prompt
+        dream_prompt = "You are a creative dream generator. Generate a SHORT, WEIRD, and SURREAL dream story (2-3 sentences). Make it absurd, confusing, and dreamlike with unexpected twists. Be creative and weird!"
+        
+        # Get AI response
+        dream_story = await ask_ai(dream_prompt)
+        
+        # Edit the thinking message with the dream
+        try:
+            await thinking_msg.edit_text(f"😴 **Your Dream:**\n\n{dream_story}")
+        except Exception as e:
+            logger.debug(f"Failed to edit message: {e}")
+            await update.message.reply_text(f"😴 **Your Dream:**\n\n{dream_story}")
+        
+        logger.info(f"😴 {update.effective_user.id} generated a dream")
+        
+    except Exception as e:
+        logger.error(f"Dream error: {e}")
+        await update.message.reply_text("❌ Failed to generate dream")
+
+@user_tracking
 async def morse(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Convert text to Morse code."""
     morse_dict = {
@@ -2401,6 +2431,7 @@ def setup_bot():
     app.add_handler(CommandHandler("8ball", eightball))
     app.add_handler(CommandHandler("reverse", reverse))
     app.add_handler(CommandHandler("fact", fact))
+    app.add_handler(CommandHandler("dream", dream))
     app.add_handler(CommandHandler("morse", morse))
     app.add_handler(CommandHandler("random", random_num))
     app.add_handler(CommandHandler("flip", upside_down))
