@@ -3,20 +3,23 @@ Utility functions for Whisky_bot
 AI integration and common helpers
 """
 
-from google import genai
+from openai import OpenAI
 import logging
 import asyncio
 import os
-from config import GEMINI_API_KEY, AI_MODEL, AI_TIMEOUT, MAX_RESPONSE_LENGTH
+from config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, AI_MODEL, AI_TIMEOUT, MAX_RESPONSE_LENGTH
 
 logger = logging.getLogger(__name__)
 
-# Configure AI client
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
+# Configure OpenRouter client (OpenAI-compatible)
+ai_client = OpenAI(
+    base_url=OPENROUTER_BASE_URL,
+    api_key=OPENROUTER_API_KEY
+)
 
 async def ask_gemini(prompt: str) -> str:
     """
-    Send a prompt to Gemini AI and get a response using google-genai SDK.
+    Send a prompt to OpenRouter AI and get a response.
     
     Args:
         prompt: The user's question or prompt
@@ -25,19 +28,24 @@ async def ask_gemini(prompt: str) -> str:
         AI response text (truncated to Telegram limit)
     """
     try:
-        # Use new google-genai API
+        # Use OpenRouter API
         response = await asyncio.wait_for(
             asyncio.to_thread(
-                lambda: ai_client.models.generate_content(
+                lambda: ai_client.chat.completions.create(
                     model=AI_MODEL,
-                    contents=prompt
+                    messages=[
+                        {"role": "system", "content": "You are a helpful Telegram assistant."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=1000
                 )
             ),
             timeout=AI_TIMEOUT
         )
         
-        # Ensure response is within Telegram's message limit
-        text = response.text[:MAX_RESPONSE_LENGTH]
+        # Extract text from response
+        text = response.choices[0].message.content.strip()[:MAX_RESPONSE_LENGTH]
         
         logger.info(f"AI query successful: {len(text)} chars")
         return text

@@ -12,7 +12,7 @@ from telegram.ext import (
     filters
 )
 
-from google import genai
+from openai import OpenAI
 from datetime import timedelta, datetime
 import logging
 import json
@@ -40,17 +40,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # =========================
-# AI SETUP
+# AI SETUP (OpenRouter)
 # =========================
 
 try:
-    logger.info("🔧 Configuring Gemini AI...")
-    logger.info(f"📝 API Key present: {bool(GEMINI_API_KEY)}")
+    logger.info("🔧 Configuring OpenRouter AI...")
+    logger.info(f"📝 API Key present: {bool(OPENROUTER_API_KEY)}")
     logger.info(f"🤖 Model: {AI_MODEL}")
     
-    # Use new google-genai SDK
-    ai_client = genai.Client(api_key=GEMINI_API_KEY)
-    logger.info("✅ Gemini configured successfully with google-genai SDK")
+    # Initialize OpenRouter client (OpenAI-compatible)
+    ai_client = OpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        api_key=OPENROUTER_API_KEY
+    )
+    logger.info("✅ OpenRouter configured successfully")
     
     # Mark as available - test will happen on first /ai or /test command
     AI_AVAILABLE = True
@@ -267,38 +270,41 @@ def rate_limit(cooldown_type: str = "command", cooldown_seconds: int = None):
 # =========================
 
 async def ask_ai(message: str) -> str:
-    """Get response from Gemini AI with new google-genai SDK."""
+    """Get response from AI using OpenRouter API."""
     if not AI_AVAILABLE or ai_client is None:
         return "⚠️ AI service is offline. Contact admin."
     
     try:
-        # Use new google-genai API via asyncio thread
+        # Use OpenRouter API via asyncio thread
         response = await asyncio.wait_for(
             asyncio.to_thread(
-                lambda: ai_client.models.generate_content(
+                lambda: ai_client.chat.completions.create(
                     model=AI_MODEL,
-                    contents=message
+                    messages=[
+                        {"role": "system", "content": "You are a helpful Telegram assistant. Respond concisely and friendly."},
+                        {"role": "user", "content": message}
+                    ],
+                    temperature=0.7,
+                    max_tokens=1000
                 )
             ),
             timeout=AI_TIMEOUT
         )
         
-        # Check if response exists
-        if not response:
-            logger.error("❌ Empty response from Gemini API")
+        # Extract text from response
+        if not response or not response.choices:
+            logger.error("❌ Empty response from OpenRouter API")
             return "❌ AI returned empty response. Try again."
         
-        # Check if response has text attribute
-        if not hasattr(response, 'text'):
-            logger.error(f"❌ Response object has no text attribute: {type(response)}")
-            return "❌ AI response format error. Try again."
+        text = response.choices[0].message.content.strip()
         
         # Check if text is empty
-        if not response.text or response.text.strip() == "":
+        if not text:
             logger.error("❌ AI returned empty text")
             return "❌ AI returned empty response. Try again."
         
-        text = response.text[:MAX_RESPONSE_LENGTH]
+        # Truncate to max length
+        text = text[:MAX_RESPONSE_LENGTH]
         logger.info(f"✅ AI response: {len(text)} chars")
         return text
         

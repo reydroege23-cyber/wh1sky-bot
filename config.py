@@ -15,13 +15,13 @@ load_dotenv()
 # =========================
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or "8771300086:AAHpos-PeRziKVr3za4XbMq0_MibJUVOznA"
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or "AIzaSyCtaMFOgg40_1yIycqwuiCkrXCDqYM-pOc"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or "sk-or-v1-your-key-here"
 
 # Validate credentials exist
 if not TELEGRAM_TOKEN:
     print("⚠️ Warning: TELEGRAM_TOKEN not found in environment")
-if not GEMINI_API_KEY:
-    print("⚠️ Warning: GEMINI_API_KEY not found in environment")
+if not OPENROUTER_API_KEY:
+    print("⚠️ Warning: OPENROUTER_API_KEY not found in environment")
 
 # =========================
 # BOT SETTINGS
@@ -84,12 +84,13 @@ SPAM_LIMIT = 5  # messages per time period
 SPAM_TIME = 10  # seconds
 
 # =========================
-# AI SETTINGS
+# AI SETTINGS (OpenRouter)
 # =========================
 
-AI_MODEL = "gemini-1.5-flash"
+AI_MODEL = "meta-llama/llama-3.1-8b-instruct"  # OpenRouter model
 AI_TIMEOUT = 30  # seconds (increased for reliability)
 MAX_RESPONSE_LENGTH = 4096  # Telegram limit
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # =========================
 # COOLDOWN SETTINGS (per user)
