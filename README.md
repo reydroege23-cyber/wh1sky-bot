@@ -5,7 +5,7 @@ A production-ready Telegram bot with AI integration, advanced moderation tools, 
 ## 🚀 Features
 
 ### User Features
-- **🤖 AI Chat** - Ask Gemini AI anything using `/ai <question>`
+- **🤖 AI Chat** - Ask Whisky AI anything using `/ai <question>`
 - **📊 User Stats** - Track your messages and AI queries with `/stats`
 - **🚫 Auto-moderation** - NSFW content filtering
 
@@ -29,7 +29,7 @@ A production-ready Telegram bot with AI integration, advanced moderation tools, 
 
 - Python 3.8+
 - Telegram Bot Token (get from [@BotFather](https://t.me/botfather))
-- Google Gemini API Key (get from [Google AI Studio](https://aistudio.google.com))
+- OpenRouter API Key (get from [OpenRouter](https://openrouter.ai/keys))
 
 ## 🔧 Installation
 
@@ -58,7 +58,7 @@ cp .env.example .env
 
 # Edit .env and add your tokens:
 # TELEGRAM_TOKEN=your_token_here
-# GEMINI_API_KEY=your_api_key_here
+# OPENROUTER_API_KEY=your_api_key_here
 ```
 
 5. **Run the bot**
@@ -73,7 +73,7 @@ python main.py
 |---------|------------|
 | `/start` | Start the bot |
 | `/help` | Show all commands |
-| `/ai <question>` | Ask Gemini AI |
+| `/ai <question>` | Ask Whisky AI |
 | `/stats` | View your statistics |
 
 ### Admin Commands
@@ -143,7 +143,7 @@ ADMIN_IDS = [your_id_1, your_id_2]
 - Check logs in `bot.log`
 
 **AI not working:**
-- Verify Gemini API key is correct
+- Verify OpenRouter API key is correct
 - Check API quota/limits
 - Review error logs
 
@@ -155,7 +155,7 @@ ADMIN_IDS = [your_id_1, your_id_2]
 ## 📦 Dependencies
 
 - `python-telegram-bot` - Telegram API wrapper
-- `google-generativeai` - Gemini AI API
+- `openai` - OpenRouter AI API
 - `python-dotenv` - Environment variable management
 
 ## 🚀 Deployment

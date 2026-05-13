@@ -16,7 +16,7 @@
 ✨ PREMIUM TELEGRAM BOT WITH:
 
 🤖  Advanced AI Integration
-    • Gemini 1.5 Flash
+    • Whisky AI (OpenRouter)
     • Real-time responses
     • Error recovery
 
@@ -65,11 +65,11 @@ STEP 2: Configure Bot
 ──────────────────────
 Create .env file:
   TELEGRAM_TOKEN=your_token
-  GEMINI_API_KEY=your_key
+  OPENROUTER_API_KEY=your_key
 
 Get tokens from:
   • Telegram: @BotFather
-  • Gemini: ai.google.dev
+  • Whisky AI: openrouter.ai/keys
 
 STEP 3: Validate Setup
 ───────────────────────
@@ -173,7 +173,7 @@ PRE-DEPLOYMENT:
 
 CONFIGURATION:
   [ ] TELEGRAM_TOKEN set in .env
-  [ ] GEMINI_API_KEY set in .env
+  [ ] OPENROUTER_API_KEY set in .env
   [ ] Admin IDs configured in config.py
   [ ] Bad words list updated (optional)
   [ ] Max warnings set (default: 3)
@@ -263,12 +263,12 @@ ADMIN_IDS = [YOUR_ID_1, YOUR_ID_2]
 MAX_WARNINGS = 3
 MUTE_DURATION = 10
 BAD_WORDS = ["porn", "sex", "xxx", "nude", "18+"]
-AI_MODEL = "gemini-1.5-flash"
+AI_MODEL = "meta-llama/llama-3.1-8b-instruct"
 AI_TIMEOUT = 10
 
 In .env:
 TELEGRAM_TOKEN=your_token
-GEMINI_API_KEY=your_key
+OPENROUTER_API_KEY=your_key
 
 ───────────────────────────────────────────────────────────
                     PERFORMANCE

@@ -56,7 +56,7 @@ echo.
 echo Next steps:
 echo 1. Edit .env file with your tokens:
 echo    - TELEGRAM_TOKEN: Get from @BotFather on Telegram
-echo    - GEMINI_API_KEY: Get from https://aistudio.google.com
+echo    - OPENROUTER_API_KEY: Get from https://openrouter.ai/keys
 echo.
 echo 2. Run the bot:
 echo    python main.py

@@ -11,12 +11,12 @@ pip install -r requirements.txt
 Create `.env` file:
 ```
 TELEGRAM_TOKEN=your_token_here
-GEMINI_API_KEY=your_key_here
+OPENROUTER_API_KEY=your_key_here
 ```
 
 Get tokens from:
 - **Telegram**: [@BotFather](https://t.me/botfather)
-- **Gemini**: [Google AI Studio](https://aistudio.google.com)
+- **Whisky AI**: [OpenRouter](https://openrouter.ai/keys)
 
 ### 3️⃣ Run Bot
 ```bash
@@ -73,7 +73,7 @@ Edit `config.py` to customize:
 - Check `bot.log` for errors
 
 ### AI not working?
-- Verify Gemini API key
+- Verify OpenRouter API key
 - Check API quota
 - Review error logs
 
@@ -104,7 +104,7 @@ Wh1sky_bot/
 ## ✨ ELITE VERSION FEATURES
 
 ✅ **14+ Commands** - Comprehensive moderation
-✅ **AI Integration** - Gemini 1.5 Flash
+✅ **AI Integration** - Whisky AI (OpenRouter)
 ✅ **User Tracking** - Statistics & history
 ✅ **Persistent Data** - Survives restarts
 ✅ **Admin System** - Multi-admin support

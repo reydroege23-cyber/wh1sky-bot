@@ -353,7 +353,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 **👥 USER COMMANDS (26):**
 • `/start` - Welcome message
 • `/help` - This menu
-• `/ai <question>` - Ask Gemini AI
+• `/ai <question>` - Ask Whisky AI
 • `/stats` - Your statistics
 • `/ping` - Check bot status
 
@@ -403,7 +403,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/unban` - Restore access
 • `/info` - User information
 • `/admins` - List admins
-• `/speak` - Enable Gemini speak mode
+• `/speak` - Enable Whisky AI speak mode
 • `/stop_speak` - Disable speak mode
 • `/unSpeak` - Disable speak mode (alias)
 
@@ -457,17 +457,17 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if AI_AVAILABLE:
             status_msg = "🟢 **BOT STATUS: ONLINE**\n\n"
             status_msg += "✅ Telegram: Connected\n"
-            status_msg += "✅ Gemini AI: Ready\n"
+            status_msg += "✅ Whisky AI: Ready\n"
             status_msg += f"⚡ Response Time: {response_time_ms:.0f}ms"
         else:
             status_msg = "🟡 **BOT STATUS: DEGRADED**\n\n"
             status_msg += "✅ Telegram: Connected\n"
-            status_msg += "❌ Gemini AI: Offline\n\n"
+            status_msg += "❌ Whisky AI: Offline\n\n"
             status_msg += "**Possible causes:**\n"
             status_msg += "• Invalid API key\n"
             status_msg += "• Network connection issue\n"
             status_msg += "• API rate limit exceeded\n"
-            status_msg += "• Gemini service unavailable\n\n"
+            status_msg += "• Whisky AI service unavailable\n\n"
             status_msg += "Admins: Use `/test` to diagnose"
         
         await update.message.reply_text(status_msg, parse_mode="Markdown")
@@ -505,7 +505,7 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • AI Integration: Active ✅
 
 **🚀 COMMAND HIGHLIGHTS:**
-• `/ai <question>` - Ask Gemini AI
+• `/ai <question>` - Ask Whisky AI
 • `/speak` - Enable AI respond mode (admin)
 • `/stats` - View your usage
 • `/help` - Full command list
@@ -549,7 +549,7 @@ async def test_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @rate_limit(cooldown_type="ai")
 @unauthorized_blocked
 async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /ai command to ask Gemini AI."""
+    """Handle /ai command to ask Whisky AI."""
     user_id = str(update.effective_user.id)
     
     # Get query from arguments
@@ -616,7 +616,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     
     try:
-        # SPEAK MODE - Gemini responds to all messages
+        # SPEAK MODE - Whisky AI responds to all messages
         speak_mode = bot_data.get("metadata", {}).get("speak_mode", False)
         if speak_mode:
             typing_msg = None
@@ -1837,7 +1837,7 @@ async def daddy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @user_tracking
 @admin_only
 async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Enable Gemini speak mode for admins."""
+    """Enable Whisky AI speak mode for admins."""
     try:
         # Ensure metadata exists
         if "metadata" not in bot_data:
@@ -1853,7 +1853,7 @@ async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @user_tracking
 @admin_only
 async def stop_speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Disable Gemini speak mode."""
+    """Disable Whisky AI speak mode."""
     try:
         # Ensure metadata exists
         if "metadata" not in bot_data:
@@ -1869,7 +1869,7 @@ async def stop_speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @user_tracking
 @admin_only
 async def unspeak(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Alias for stop_speak - disable Gemini speak mode."""
+    """Alias for stop_speak - disable Whisky AI speak mode."""
     await stop_speak(update, context)
 
 # =========================

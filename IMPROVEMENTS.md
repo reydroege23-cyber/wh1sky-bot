@@ -124,7 +124,7 @@ Wh1sky_bot/
 
 ### `.env` - Secrets
 - TELEGRAM_TOKEN
-- GEMINI_API_KEY
+- OPENROUTER_API_KEY
 - Keep this private, never commit
 
 ## 🎯 Usage

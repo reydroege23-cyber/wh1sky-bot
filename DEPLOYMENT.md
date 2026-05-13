@@ -7,7 +7,7 @@
 - [ ] `requirements.txt` installed
 - [ ] `.env` file created
 - [ ] `TELEGRAM_TOKEN` set
-- [ ] `GEMINI_API_KEY` set
+- [ ] `OPENROUTER_API_KEY` set
 
 ### Step 2: Validation
 ```bash
@@ -159,7 +159,7 @@ tail bot.log        # Check errors
 ```
 
 **AI not working:**
-- Verify Gemini API key
+- Verify OpenRouter API key
 - Check API quota
 - Review error logs
 
@@ -314,7 +314,7 @@ python validate.py
 
 ### External Help
 - 📚 [Telegram Bot API](https://core.telegram.org/bots/api)
-- 🤖 [Google Gemini API](https://ai.google.dev)
+- 🤖 [OpenRouter API](https://openrouter.ai)
 - 🐍 [Python Telegram Bot](https://python-telegram-bot.org)
 
 ---

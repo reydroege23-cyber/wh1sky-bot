@@ -88,7 +88,7 @@ This applies to:
 - `/stats` - View statistics
 - `/roll`, `/coin`, `/dice` - Fun commands
 - `/calc`, `/echo` - Utility commands
-- `/ai` - Ask Gemini AI
+- `/ai` - Ask Whisky AI
 - All other user commands
 
 ### 🔑 Protected Commands List

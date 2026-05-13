@@ -62,7 +62,7 @@ Wh1sky_bot/
 ## ✨ ELITE FEATURES INCLUDED
 
 ### 🤖 AI Integration
-- ✅ Gemini 1.5 Flash
+- ✅ Whisky AI (OpenRouter)
 - ✅ Instant responses
 - ✅ Timeout protection
 - ✅ Query tracking
@@ -117,7 +117,7 @@ Wh1sky_bot/
 ```
 /start     - Welcome message
 /help      - Command reference
-/ai        - Ask Gemini AI
+/ai        - Ask Whisky AI
 /stats     - Your statistics
 /ping      - Bot status
 ```
@@ -149,7 +149,7 @@ pip install -r requirements.txt
 Create `.env`:
 ```
 TELEGRAM_TOKEN=your_token
-GEMINI_API_KEY=your_key
+OPENROUTER_API_KEY=your_key
 ```
 
 ### 3. Run
@@ -210,7 +210,7 @@ MUTE_DURATION = 10
 BAD_WORDS = ["porn", "sex", "xxx", "nude", "18+"]
 
 # AI
-AI_MODEL = "gemini-1.5-flash"
+AI_MODEL = "meta-llama/llama-3.1-8b-instruct"
 AI_TIMEOUT = 10
 
 # Features

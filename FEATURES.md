@@ -3,7 +3,7 @@
 ## 📊 OVERVIEW
 
 **Whisky_bot Elite** is a production-grade Telegram bot with:
-- 🤖 AI Integration (Gemini 1.5 Flash)
+- 🤖 AI Integration (Whisky AI powered by OpenRouter)
 - 👮 Advanced Moderation
 - 📊 User Statistics & Tracking
 - 💾 Persistent Data Storage
@@ -17,7 +17,7 @@
 ## 👥 USER FEATURES
 
 ### 1. AI Chat `/ai <question>`
-- Ask Gemini anything
+- Ask Whisky AI anything
 - Get instant responses
 - Timeout protection
 - Error handling
@@ -188,7 +188,9 @@ porn, sex, xxx, nude, 18+
 
 ## 🤖 AI INTEGRATION
 
-### Gemini 1.5 Flash
+### Whisky AI (OpenRouter)
+
+**Fast, Reliable LLM**
 - Fast responses
 - Low latency
 - Cost effective
@@ -283,7 +285,7 @@ porn, sex, xxx, nude, 18+
 ADMIN_IDS = [123456, 789012]      # Admin user IDs
 MAX_WARNINGS = 3                   # Ban threshold
 MUTE_DURATION = 10                 # Minutes
-AI_MODEL = "gemini-1.5-flash"     # AI model
+AI_MODEL = "meta-llama/llama-3.1-8b-instruct"     # AI model
 AI_TIMEOUT = 10                    # Seconds
 ```
 
@@ -352,7 +354,7 @@ python main.py
 - 50MB disk space
 - Internet connection
 - Telegram account
-- Gemini API access
+- OpenRouter API access
 
 ---
 
@@ -381,7 +383,7 @@ python main.py
 - Check admin permissions
 
 ### AI Issues
-- Verify Gemini key
+- Verify Whisky AI key
 - Check API quota
 - Review timeout settings
 - Check internet connection
