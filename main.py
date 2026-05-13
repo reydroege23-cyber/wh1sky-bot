@@ -1026,6 +1026,65 @@ async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to unban user")
 
 @admin_only
+async def nuke(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete recent messages from chat. Usage: /nuke [count] (default: 20, max: 100)"""
+    try:
+        # Get number of messages to delete
+        count = 20  # default
+        if context.args:
+            try:
+                count = int(context.args[0])
+                if count < 1 or count > 100:
+                    await update.message.reply_text("❌ Count must be between 1 and 100")
+                    return
+            except ValueError:
+                await update.message.reply_text("❌ Invalid number. Usage: `/nuke [1-100]`", parse_mode="Markdown")
+                return
+        
+        chat_id = update.effective_chat.id
+        message_id = update.message.message_id
+        deleted = 0
+        failed = 0
+        
+        # Delete the command message first
+        try:
+            await context.bot.delete_message(chat_id, message_id)
+            deleted += 1
+        except Exception as e:
+            logger.warning(f"Could not delete command message: {e}")
+        
+        # Delete previous messages
+        for msg_id in range(message_id - 1, message_id - count - 1, -1):
+            if msg_id < 1:
+                break
+            try:
+                await context.bot.delete_message(chat_id, msg_id)
+                deleted += 1
+            except Exception as e:
+                # Message may not exist or already deleted
+                logger.debug(f"Could not delete message {msg_id}: {e}")
+                failed += 1
+                continue
+        
+        # Send confirmation message
+        result_msg = await context.bot.send_message(
+            chat_id,
+            f"💣 **NUKED!** Deleted {deleted} message(s)"
+        )
+        logger.info(f"💣 Nuked {deleted} messages in {chat_id} by {update.effective_user.id}")
+        
+        # Delete confirmation after 3 seconds
+        try:
+            await asyncio.sleep(3)
+            await context.bot.delete_message(chat_id, result_msg.message_id)
+        except:
+            pass
+            
+    except Exception as e:
+        logger.error(f"Nuke error: {e}")
+        await context.bot.send_message(update.effective_chat.id, f"❌ Failed to nuke: {str(e)[:100]}")
+
+@admin_only
 async def iloveu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Permanently ban user (alias for /ban)."""
     await ban(update, context)
@@ -2324,6 +2383,7 @@ def setup_bot():
     app.add_handler(CommandHandler("unmute", unmute))
     app.add_handler(CommandHandler("unshut", unmute))
     app.add_handler(CommandHandler("kick", kick))
+    app.add_handler(CommandHandler("nuke", nuke))
     app.add_handler(CommandHandler("iloveu", iloveu))
     app.add_handler(CommandHandler("unban", unban))
     app.add_handler(CommandHandler("info", user_info))
