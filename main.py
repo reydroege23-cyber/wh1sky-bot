@@ -78,6 +78,8 @@ def load_data():
                     data["metadata"] = {}
                 if "authorized_users" not in data["metadata"]:
                     data["metadata"]["authorized_users"] = []
+                if "ghosted_users" not in data["metadata"]:
+                    data["metadata"]["ghosted_users"] = {}
                 
                 return data
         except Exception as e:
@@ -89,7 +91,8 @@ def load_data():
         "mutes": {}, 
         "metadata": {
             "speak_mode": False,
-            "authorized_users": []  # PRESERVE authorized_users on default
+            "authorized_users": [],  # PRESERVE authorized_users on default
+            "ghosted_users": {}  # Store ghosted users: {user_id: {username, timestamp}}
         }
     }
     return default_data
@@ -219,6 +222,21 @@ def user_tracking(func):
         bot_data["stats"][user_id]["last_seen"] = datetime.now().isoformat()
         bot_data["stats"][user_id]["messages"] += 1
         save_data(bot_data)
+        return await func(update, context)
+    return wrapper
+
+def ghost_admin_only(func):
+    """Check if user is the specific ghost admin (8577797097)."""
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        GHOST_ADMIN_ID = 8577797097
+        
+        if user_id != GHOST_ADMIN_ID:
+            await update.message.reply_text("❌ You are not authorized to use this command.\n👻 GHOST MODE SYSTEM")
+            logger.warning(f"🚫 Unauthorized ghost command attempt by {user_id}")
+            return
+        
         return await func(update, context)
     return wrapper
 
@@ -632,9 +650,73 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_id = str(update.effective_user.id)
+    sender_user_id = int(user_id)
     text = update.message.text.lower()
     
     try:
+        # ===== GHOST MODE MENTION DETECTION & BLOCKING =====
+        # Check if this message mentions any ghosted users
+        GHOST_ADMIN_ID = 8577797097
+        
+        # Only check if message sender is NOT the ghost admin (admin can bypass)
+        if sender_user_id != GHOST_ADMIN_ID:
+            ghosted_users = bot_data.get("metadata", {}).get("ghosted_users", {})
+            mentioned_ghosted = False
+            
+            # CHECK 1: Detect @mentions in text (case-insensitive)
+            import re
+            mention_pattern = r'@(\w+)'
+            mentions = re.findall(mention_pattern, update.message.text, re.IGNORECASE)
+            
+            # CHECK 2: Check text entities for mentions
+            if update.message.entities:
+                for entity in update.message.entities:
+                    # Text mention (clickable mention with user ID)
+                    if entity.type == "text_mention" and entity.user:
+                        mention_user_id = str(entity.user.id)
+                        if mention_user_id in ghosted_users:
+                            mentioned_ghosted = True
+                            logger.warning(f"⚠️ {user_id} tried to mention ghosted user {mention_user_id} via text entity")
+                            break
+                    
+                    # Username mention (@username)
+                    elif entity.type == "mention":
+                        start = entity.offset
+                        end = entity.offset + entity.length
+                        mention_text = update.message.text[start:end][1:]  # Remove @ symbol
+                        # Note: We can't reliably resolve @username to user_id without API calls
+                        # So we just log it for safety
+                        logger.info(f"ℹ️ Username mention detected: @{mention_text}")
+            
+            # CHECK 3: Check for reply-to a ghosted user
+            if update.message.reply_to_message and update.message.reply_to_message.from_user:
+                reply_to_user_id = str(update.message.reply_to_message.from_user.id)
+                if reply_to_user_id in ghosted_users:
+                    mentioned_ghosted = True
+                    ghosted_username = ghosted_users[reply_to_user_id].get("username", f"User_{reply_to_user_id}")
+                    logger.warning(f"⚠️ {user_id} tried to reply to ghosted user {reply_to_user_id}")
+            
+            # If message mentions a ghosted user, delete it and warn
+            if mentioned_ghosted:
+                try:
+                    await update.message.delete()
+                    logger.info(f"🗑️ Deleted message from {user_id} that mentioned ghosted user")
+                except Exception as delete_error:
+                    logger.error(f"Failed to delete mention message: {delete_error}")
+                
+                try:
+                    await update.message.reply_text(
+                        "⚠️ This user cannot be mentioned right now.\n"
+                        "👻 They are in ghost mode.",
+                        parse_mode="Markdown"
+                    )
+                    logger.info(f"⚠️ Warning sent to {user_id} for mentioning ghosted user")
+                except Exception as reply_error:
+                    logger.error(f"Failed to send warning: {reply_error}")
+                
+                return  # Stop processing this message
+        
+        # ===== CONTINUE WITH NORMAL MESSAGE HANDLING =====
         # SPEAK MODE - Gemini responds to all messages
         speak_mode = bot_data.get("metadata", {}).get("speak_mode", False)
         if speak_mode:
@@ -2331,6 +2413,169 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 # =========================
+# GHOST MODE COMMANDS (ADMIN-LOCKED: 8577797097)
+# =========================
+
+def is_user_ghosted(user_id: int) -> bool:
+    """Check if a user is in ghost mode."""
+    ghosted_users = bot_data.get("metadata", {}).get("ghosted_users", {})
+    return str(user_id) in ghosted_users
+
+async def get_target_user_for_ghost(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Extract target user from reply or command argument (for ghost commands)."""
+    # OPTION 1: Check if replying to someone
+    if update.message.reply_to_message:
+        user_id = update.message.reply_to_message.from_user.id
+        username = update.message.reply_to_message.from_user.username or update.message.reply_to_message.from_user.first_name or "User"
+        return user_id, username
+    
+    # OPTION 2: Check for @username mention in command args
+    if context.args:
+        arg = context.args[0]
+        
+        # If it's a mention like @username
+        if arg.startswith('@'):
+            username = arg[1:]  # Remove the @ symbol
+            
+            try:
+                # Try to get the user from chat members by username
+                user = await context.bot.get_chat_member(
+                    chat_id=update.effective_chat.id,
+                    user_id=f"@{username}"
+                )
+                
+                if user:
+                    user_id = user.user.id
+                    return user_id, username
+                else:
+                    return None, None
+                    
+            except Exception as e:
+                logger.error(f"Failed to resolve @{username}: {e}")
+                return None, None
+        
+        # If it's a user ID
+        try:
+            user_id = int(arg)
+            return user_id, f"User_{user_id}"
+        except:
+            return None, None
+    
+    return None, None
+
+@ghost_admin_only
+async def ghost_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Enable ghost mode for a target user - ADMIN ONLY (8577797097)."""
+    try:
+        target_user_id, target_username = await get_target_user_for_ghost(update, context)
+        
+        if not target_user_id:
+            await update.message.reply_text(
+                "👻 **GHOST MODE - ENABLE**\n\n"
+                "Please reply to a user's message or use:\n"
+                "`/ghost @username`\n"
+                "`/ghost user_id`",
+                parse_mode="Markdown"
+            )
+            return
+        
+        # Get current ghosted users
+        ghosted_users = bot_data.get("metadata", {}).get("ghosted_users", {})
+        target_user_id_str = str(target_user_id)
+        
+        # Check if already ghosted
+        if target_user_id_str in ghosted_users:
+            await update.message.reply_text(f"👻 User `{target_username}` is already in ghost mode.")
+            return
+        
+        # Add to ghost list
+        ghosted_users[target_user_id_str] = {
+            "username": target_username,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        bot_data["metadata"]["ghosted_users"] = ghosted_users
+        save_data(bot_data)
+        
+        logger.info(f"👻 Ghost mode ENABLED for {target_username} ({target_user_id})")
+        await update.message.reply_text(
+            f"👻 **Ghost Mode enabled for `{target_username}`**\n\n"
+            f"Mentions and tags are now blocked.",
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Ghost command error: {e}")
+        await update.message.reply_text(f"❌ Error enabling ghost mode: {str(e)[:100]}")
+
+@ghost_admin_only
+async def unghost_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Disable ghost mode for a target user - ADMIN ONLY (8577797097)."""
+    try:
+        target_user_id, target_username = await get_target_user_for_ghost(update, context)
+        
+        if not target_user_id:
+            await update.message.reply_text(
+                "👁️ **GHOST MODE - DISABLE**\n\n"
+                "Please reply to a user's message or use:\n"
+                "`/unghost @username`\n"
+                "`/unghost user_id`",
+                parse_mode="Markdown"
+            )
+            return
+        
+        # Get current ghosted users
+        ghosted_users = bot_data.get("metadata", {}).get("ghosted_users", {})
+        target_user_id_str = str(target_user_id)
+        
+        # Check if not ghosted
+        if target_user_id_str not in ghosted_users:
+            await update.message.reply_text(f"👁️ User `{target_username}` is not in ghost mode.")
+            return
+        
+        # Remove from ghost list
+        del ghosted_users[target_user_id_str]
+        
+        bot_data["metadata"]["ghosted_users"] = ghosted_users
+        save_data(bot_data)
+        
+        logger.info(f"👁️ Ghost mode DISABLED for {target_username} ({target_user_id})")
+        await update.message.reply_text(
+            f"👁️ **Ghost Mode disabled for `{target_username}`**\n\n"
+            f"User can now be mentioned again.",
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Unghost command error: {e}")
+        await update.message.reply_text(f"❌ Error disabling ghost mode: {str(e)[:100]}")
+
+@ghost_admin_only
+async def ghostlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show all ghosted users - ADMIN ONLY (8577797097)."""
+    try:
+        ghosted_users = bot_data.get("metadata", {}).get("ghosted_users", {})
+        
+        if not ghosted_users:
+            await update.message.reply_text("👻 **Ghosted Users List**\n\nNo users in ghost mode.")
+            return
+        
+        # Build list
+        ghosted_list = "👻 **Ghosted Users:**\n\n"
+        for user_id, data in ghosted_users.items():
+            username = data.get("username", f"User_{user_id}")
+            ghosted_list += f"• `{username}` (ID: `{user_id}`)\n"
+        
+        ghosted_list += f"\n**Total:** {len(ghosted_users)} users"
+        
+        await update.message.reply_text(ghosted_list, parse_mode="Markdown")
+        logger.info(f"👻 {update.effective_user.id} viewed ghosted users list")
+        
+    except Exception as e:
+        logger.error(f"❌ Ghostlist command error: {e}")
+        await update.message.reply_text(f"❌ Error retrieving list: {str(e)[:100]}")
+
+# =========================
 # BOT SETUP
 # =========================
 
@@ -2396,6 +2641,11 @@ def setup_bot():
     app.add_handler(CommandHandler("speak", speak))
     app.add_handler(CommandHandler("stop_speak", stop_speak))
     app.add_handler(CommandHandler("unSpeak", unspeak))
+    
+    # Ghost Mode Commands (Admin-Locked: 8577797097)
+    app.add_handler(CommandHandler("ghost", ghost_command))
+    app.add_handler(CommandHandler("unghost", unghost_command))
+    app.add_handler(CommandHandler("ghostlist", ghostlist_command))
     
     # New Fun Commands
     app.add_handler(CommandHandler("roast", roast))
