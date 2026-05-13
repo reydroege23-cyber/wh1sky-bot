@@ -2725,8 +2725,8 @@ def setup_bot():
     app.add_handler(CommandHandler("ghost", ghost_command))
     app.add_handler(CommandHandler("unghost", unghost_command))
     app.add_handler(CommandHandler("ghostlist", ghostlist_command))
-    app.add_handler(CommandHandler("on", ghost_on_command))
-    app.add_handler(CommandHandler("off", ghost_off_command))
+    app.add_handler(CommandHandler("gon", ghost_on_command))
+    app.add_handler(CommandHandler("goff", ghost_off_command))
     
     # New Fun Commands
     app.add_handler(CommandHandler("roast", roast))
