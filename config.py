@@ -92,6 +92,14 @@ AI_TIMEOUT = 30  # seconds (increased for reliability)
 MAX_RESPONSE_LENGTH = 4096  # Telegram limit
 
 # =========================
+# COOLDOWN SETTINGS (per user)
+# =========================
+
+AI_COOLDOWN = 5  # seconds between /ai commands
+SPEAK_COOLDOWN = 3  # seconds between speak mode replies
+COMMAND_COOLDOWN = 2  # seconds between other commands
+
+# =========================
 # DATA STORAGE
 # =========================
 
