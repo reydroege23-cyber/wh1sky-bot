@@ -1681,6 +1681,24 @@ async def daddy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Daddy error: {e}")
 
+@user_tracking
+async def waleed(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Special command - football kid."""
+    try:
+        await update.message.reply_text("⚽ football kid")
+        logger.info(f"⚽ {update.effective_user.id} triggered waleed")
+    except Exception as e:
+        logger.error(f"Waleed error: {e}")
+
+@user_tracking
+async def kiss(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Special command - Mauh by whisky."""
+    try:
+        await update.message.reply_text("💋 Mauh by whisky")
+        logger.info(f"💋 {update.effective_user.id} triggered kiss")
+    except Exception as e:
+        logger.error(f"Kiss error: {e}")
+
 @rate_limit(cooldown_type="command", cooldown_seconds=0)
 @user_tracking
 @admin_only
@@ -2428,6 +2446,8 @@ def setup_bot():
     app.add_handler(CommandHandler("kurdishezdi", kurdishezdi))
     app.add_handler(CommandHandler("Whisky", whisky_cmd))
     app.add_handler(CommandHandler("daddy", daddy))
+    app.add_handler(CommandHandler("Waleed", waleed))
+    app.add_handler(CommandHandler("kiss", kiss))
     app.add_handler(CommandHandler("speak", speak))
     app.add_handler(CommandHandler("stop_speak", stop_speak))
     app.add_handler(CommandHandler("unSpeak", unspeak))
