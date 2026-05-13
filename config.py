@@ -15,7 +15,7 @@ load_dotenv()
 # =========================
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or "8771300086:AAHpos-PeRziKVr3za4XbMq0_MibJUVOznA"
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or "AIzaSyB0QWChnufXOBLuvcGY1wOta3SBspSO6vQ"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or "AIzaSyCtaMFOgg40_1yIycqwuiCkrXCDqYM-pOc"
 
 # Validate credentials exist
 if not TELEGRAM_TOKEN:
