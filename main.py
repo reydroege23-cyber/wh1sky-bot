@@ -80,6 +80,8 @@ def load_data():
                     data["metadata"]["authorized_users"] = []
                 if "ghosted_users" not in data["metadata"]:
                     data["metadata"]["ghosted_users"] = {}
+                if "ghost_mode_enabled" not in data["metadata"]:
+                    data["metadata"]["ghost_mode_enabled"] = True
                 
                 return data
         except Exception as e:
@@ -92,7 +94,8 @@ def load_data():
         "metadata": {
             "speak_mode": False,
             "authorized_users": [],  # PRESERVE authorized_users on default
-            "ghosted_users": {}  # Store ghosted users: {user_id: {username, timestamp}}
+            "ghosted_users": {},  # Store ghosted users: {user_id: {username, timestamp}}
+            "ghost_mode_enabled": True  # Global ghost mode toggle
         }
     }
     return default_data
@@ -645,79 +648,23 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @user_tracking
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Enhanced message handling."""
+    """Enhanced message handling - GHOST MODE CHECK FIRST."""
     if not update.message or not update.message.text:
         return
 
     user_id = str(update.effective_user.id)
-    sender_user_id = int(user_id)
     text = update.message.text.lower()
     
     try:
-        # ===== GHOST MODE MENTION DETECTION & BLOCKING =====
+        # ===== PRIORITY 1: GHOST MODE MENTION BLOCKING =====
         # Check if this message mentions any ghosted users
-        GHOST_ADMIN_ID = 8577797097
+        # If ghost violation detected, message is deleted and we return early
+        is_ghost_violation = await check_and_block_ghost_mentions(update, context)
+        if is_ghost_violation:
+            logger.info(f"🛑 Ghost violation blocked from {user_id} - stopping message processing")
+            return
         
-        # Only check if message sender is NOT the ghost admin (admin can bypass)
-        if sender_user_id != GHOST_ADMIN_ID:
-            ghosted_users = bot_data.get("metadata", {}).get("ghosted_users", {})
-            mentioned_ghosted = False
-            
-            # CHECK 1: Detect @mentions in text (case-insensitive)
-            import re
-            mention_pattern = r'@(\w+)'
-            mentions = re.findall(mention_pattern, update.message.text, re.IGNORECASE)
-            
-            # CHECK 2: Check text entities for mentions
-            if update.message.entities:
-                for entity in update.message.entities:
-                    # Text mention (clickable mention with user ID)
-                    if entity.type == "text_mention" and entity.user:
-                        mention_user_id = str(entity.user.id)
-                        if mention_user_id in ghosted_users:
-                            mentioned_ghosted = True
-                            logger.warning(f"⚠️ {user_id} tried to mention ghosted user {mention_user_id} via text entity")
-                            break
-                    
-                    # Username mention (@username)
-                    elif entity.type == "mention":
-                        start = entity.offset
-                        end = entity.offset + entity.length
-                        mention_text = update.message.text[start:end][1:]  # Remove @ symbol
-                        # Note: We can't reliably resolve @username to user_id without API calls
-                        # So we just log it for safety
-                        logger.info(f"ℹ️ Username mention detected: @{mention_text}")
-            
-            # CHECK 3: Check for reply-to a ghosted user
-            if update.message.reply_to_message and update.message.reply_to_message.from_user:
-                reply_to_user_id = str(update.message.reply_to_message.from_user.id)
-                if reply_to_user_id in ghosted_users:
-                    mentioned_ghosted = True
-                    ghosted_username = ghosted_users[reply_to_user_id].get("username", f"User_{reply_to_user_id}")
-                    logger.warning(f"⚠️ {user_id} tried to reply to ghosted user {reply_to_user_id}")
-            
-            # If message mentions a ghosted user, delete it and warn
-            if mentioned_ghosted:
-                try:
-                    await update.message.delete()
-                    logger.info(f"🗑️ Deleted message from {user_id} that mentioned ghosted user")
-                except Exception as delete_error:
-                    logger.error(f"Failed to delete mention message: {delete_error}")
-                
-                try:
-                    await update.message.reply_text(
-                        "⚠️ This user cannot be mentioned right now.\n"
-                        "👻 They are in ghost mode.",
-                        parse_mode="Markdown"
-                    )
-                    logger.info(f"⚠️ Warning sent to {user_id} for mentioning ghosted user")
-                except Exception as reply_error:
-                    logger.error(f"Failed to send warning: {reply_error}")
-                
-                return  # Stop processing this message
-        
-        # ===== CONTINUE WITH NORMAL MESSAGE HANDLING =====
-        # SPEAK MODE - Gemini responds to all messages
+        # ===== PRIORITY 2: SPEAK MODE - Gemini responds to all messages =====
         speak_mode = bot_data.get("metadata", {}).get("speak_mode", False)
         if speak_mode:
             typing_msg = None
@@ -753,7 +700,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except:
                     pass
         
-        # NSFW FILTER
+        # ===== PRIORITY 3: NSFW FILTER =====
         if ENABLE_AUTO_MODERATION:
             for word in BAD_WORDS:
                 if word in text:
@@ -767,7 +714,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     save_data(bot_data)
                     return
 
-        # AI COMMAND
+        # ===== PRIORITY 4: AI COMMAND =====
         if text.startswith("/ai"):
             query = text.replace("/ai", "").strip()
             if not query:
@@ -2413,8 +2360,102 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 # =========================
-# GHOST MODE COMMANDS (ADMIN-LOCKED: 8577797097)
+# GHOST MODE MENTION DETECTION & BLOCKING
 # =========================
+
+async def check_and_block_ghost_mentions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    Check if message mentions any ghosted users.
+    Returns: True if mention was blocked (message deleted), False if OK to continue.
+    
+    Detects:
+    - Text entity mentions (clickable mentions with user IDs)
+    - Reply-to mentions
+    - Username mentions via regex (best-effort)
+    """
+    GHOST_ADMIN_ID = 8577797097
+    sender_id = update.effective_user.id
+    
+    # Check if ghost mode is globally enabled
+    ghost_mode_enabled = bot_data.get("metadata", {}).get("ghost_mode_enabled", True)
+    if not ghost_mode_enabled:
+        return False
+    
+    # Admin always bypasses ghost protection
+    if sender_id == GHOST_ADMIN_ID:
+        return False
+    
+    ghosted_users = bot_data.get("metadata", {}).get("ghosted_users", {})
+    if not ghosted_users:
+        return False
+    
+    try:
+        message = update.message
+        if not message or not message.text:
+            return False
+        
+        logger.info(f"🔍 Scanning message from {sender_id} for ghost mentions")
+        
+        # ===== DETECTION #1: Message Entities (Most Reliable) =====
+        # Text mention entities with user IDs (clickable mentions)
+        if message.entities:
+            for entity in message.entities:
+                # Type "text_mention" = clickable mention with embedded user ID
+                if entity.type == "text_mention" and entity.user:
+                    mention_user_id = str(entity.user.id)
+                    mention_text = entity.user.first_name or f"User_{mention_user_id}"
+                    
+                    if mention_user_id in ghosted_users:
+                        logger.warning(f"🚫 GHOST VIOLATION: {sender_id} mentioned ghosted user {mention_user_id} via entity")
+                        await message.delete()
+                        await message.reply_text(
+                            "⚠️ This user cannot be mentioned right now.\n"
+                            "👻 They are in ghost mode.",
+                            parse_mode="Markdown"
+                        )
+                        return True
+        
+        # ===== DETECTION #2: Reply-To Mentions =====
+        # If replying to a ghosted user
+        if message.reply_to_message and message.reply_to_message.from_user:
+            reply_to_user_id = str(message.reply_to_message.from_user.id)
+            
+            if reply_to_user_id in ghosted_users:
+                reply_username = message.reply_to_message.from_user.first_name or f"User_{reply_to_user_id}"
+                logger.warning(f"🚫 GHOST VIOLATION: {sender_id} replied to ghosted user {reply_to_user_id}")
+                
+                try:
+                    await message.delete()
+                    await message.reply_text(
+                        f"⚠️ Cannot reply to `{reply_username}`.\n"
+                        "👻 They are in ghost mode.",
+                        parse_mode="Markdown"
+                    )
+                    return True
+                except Exception as e:
+                    logger.error(f"Error blocking ghost reply: {e}")
+                    return True
+        
+        # ===== DETECTION #3: Text Mentions via Regex =====
+        # Look for @username patterns in text
+        # NOTE: We can't resolve @username to user_id without API calls,
+        # so we log for awareness but DON'T delete (to avoid false positives)
+        import re
+        mention_pattern = r'@(\w+)'
+        matches = re.finditer(mention_pattern, message.text, re.IGNORECASE)
+        
+        for match in matches:
+            mentioned_username = match.group(1).lower()
+            logger.info(f"ℹ️ Username mention detected: @{mentioned_username} from {sender_id}")
+            # TODO: If you maintain a username-to-userid mapping, check it here
+        
+        return False
+        
+    except Exception as e:
+        logger.error(f"❌ Error in ghost mention detection: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return False
 
 def is_user_ghosted(user_id: int) -> bool:
     """Check if a user is in ghost mode."""
@@ -2575,6 +2616,44 @@ async def ghostlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"❌ Ghostlist command error: {e}")
         await update.message.reply_text(f"❌ Error retrieving list: {str(e)[:100]}")
 
+@ghost_admin_only
+async def ghost_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Enable Ghost Mode globally - ADMIN ONLY (8577797097)."""
+    try:
+        bot_data["metadata"]["ghost_mode_enabled"] = True
+        save_data(bot_data)
+        
+        logger.info(f"✅ GHOST MODE ENABLED by admin {update.effective_user.id}")
+        await update.message.reply_text(
+            "✅ **GHOST MODE: ON**\n\n"
+            "👻 Mention protection is now ACTIVE.\n"
+            "Attempts to mention ghosted users will be blocked.",
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Ghost on command error: {e}")
+        await update.message.reply_text(f"❌ Error enabling ghost mode: {str(e)[:100]}")
+
+@ghost_admin_only
+async def ghost_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Disable Ghost Mode globally - ADMIN ONLY (8577797097)."""
+    try:
+        bot_data["metadata"]["ghost_mode_enabled"] = False
+        save_data(bot_data)
+        
+        logger.info(f"❌ GHOST MODE DISABLED by admin {update.effective_user.id}")
+        await update.message.reply_text(
+            "❌ **GHOST MODE: OFF**\n\n"
+            "👻 Mention protection is now INACTIVE.\n"
+            "Ghosted users can be mentioned freely.",
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Ghost off command error: {e}")
+        await update.message.reply_text(f"❌ Error disabling ghost mode: {str(e)[:100]}")
+
 # =========================
 # BOT SETUP
 # =========================
@@ -2646,6 +2725,8 @@ def setup_bot():
     app.add_handler(CommandHandler("ghost", ghost_command))
     app.add_handler(CommandHandler("unghost", unghost_command))
     app.add_handler(CommandHandler("ghostlist", ghostlist_command))
+    app.add_handler(CommandHandler("on", ghost_on_command))
+    app.add_handler(CommandHandler("off", ghost_off_command))
     
     # New Fun Commands
     app.add_handler(CommandHandler("roast", roast))
