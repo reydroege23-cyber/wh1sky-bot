@@ -1884,8 +1884,29 @@ async def truth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Are u Femboy?",
         "Do u love Dick?"
     ]
+    
+    # Initialize used truths tracking if not exists
+    if "used_truths" not in bot_data:
+        bot_data["used_truths"] = {}
+    
+    current_time = datetime.now()
+    available_truths = []
+    
+    for truth in truths:
+        last_used = bot_data["used_truths"].get(truth)
+        if last_used is None or (current_time - datetime.fromisoformat(last_used)) > timedelta(minutes=1):
+            available_truths.append(truth)
+    
+    # If no truths available (all used within last minute), allow reuse
+    if not available_truths:
+        available_truths = truths
+    
     try:
-        truth_q = random.choice(truths)
+        truth_q = random.choice(available_truths)
+        # Record usage time
+        bot_data["used_truths"][truth_q] = current_time.isoformat()
+        save_data(bot_data)
+        
         await update.message.reply_text(f"🎯 **TRUTH:**\n\n{truth_q}", parse_mode="Markdown")
         logger.info(f"🎯 {update.effective_user.id} got a truth question")
     except Exception as e:
@@ -1968,22 +1989,80 @@ async def dare(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Send a voice message of you doing your best impression of a famous author."
         "Pretend to be a life coach and give advice on how to be successful, then send a voice message of it."
         "Try to do a handstand on a chair and send a video of it."
-        "Put Toy in your ass and send a video of it."
-        "Let whisky rape you "
-        "Send ass picture"
-        "Send dick picture"
-        "Send boobs picture"
-        "By who u get raped"
-        "Suck your own dick"
-        "Let A pedo rape you"
-        "Put big Cucumber in your ass"
-        "Eat your own shit"
-        "Put big Cucumber in your mouth and send ss "
+        # High probability dares (added multiple times for higher chance)
+        "Put Toy in your ass and send a video of it.",
+        "Put Toy in your ass and send a video of it.",
+        "Put Toy in your ass and send a video of it.",
+        "Put Toy in your ass and send a video of it.",
+        "Let whisky rape you ",
+        "Let whisky rape you ",
+        "Let whisky rape you ",
+        "Let whisky rape you ",
+        "Send ass picture",
+        "Send ass picture",
+        "Send ass picture",
+        "Send ass picture",
+        "Send dick picture",
+        "Send dick picture",
+        "Send dick picture",
+        "Send dick picture",
+        "Send boobs picture",
+        "Send boobs picture",
+        "Send boobs picture",
+        "Send boobs picture",
+        "By who u get raped",
+        "By who u get raped",
+        "By who u get raped",
+        "By who u get raped",
+        "Suck your own dick",
+        "Suck your own dick",
+        "Suck your own dick",
+        "Suck your own dick",
+        "Let A pedo rape you",
+        "Let A pedo rape you",
+        "Let A pedo rape you",
+        "Let A pedo rape you",
+        "Put big Cucumber in your ass",
+        "Put big Cucumber in your ass",
+        "Put big Cucumber in your ass",
+        "Put big Cucumber in your ass",
+        "Eat your own shit",
+        "Eat your own shit",
+        "Eat your own shit",
+        "Eat your own shit",
+        "Put big Cucumber in your mouth and send ss ",
+        "Put big Cucumber in your mouth and send ss ",
+        "Put big Cucumber in your mouth and send ss ",
+        "Put big Cucumber in your mouth and send ss ",
+        "Rape yourself",
+        "Rape yourself",
+        "Rape yourself",
         "Rape yourself"
         
     ]
+    
+    # Initialize used dares tracking if not exists
+    if "used_dares" not in bot_data:
+        bot_data["used_dares"] = {}
+    
+    current_time = datetime.now()
+    available_dares = []
+    
+    for dare in dares:
+        last_used = bot_data["used_dares"].get(dare)
+        if last_used is None or (current_time - datetime.fromisoformat(last_used)) > timedelta(minutes=1):
+            available_dares.append(dare)
+    
+    # If no dares available (all used within last minute), allow reuse
+    if not available_dares:
+        available_dares = dares
+    
     try:
-        dare_msg = random.choice(dares)
+        dare_msg = random.choice(available_dares)
+        # Record usage time
+        bot_data["used_dares"][dare_msg] = current_time.isoformat()
+        save_data(bot_data)
+        
         await update.message.reply_text(f"😈 **DARE:**\n\n{dare_msg}", parse_mode="Markdown")
         logger.info(f"😈 {update.effective_user.id} got a dare")
     except Exception as e:
