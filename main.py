@@ -98,24 +98,14 @@ bot_data = load_data()
 # =========================
 
 def admin_only(func):
-    """Check if user is admin - authorized users cannot use admin commands."""
+    """Check if user is admin."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         
         if user_id not in ADMIN_IDS:
-            # Check if user is authorized (but not admin)
-            authorized_users = bot_data.get("metadata", {}).get("authorized_users", [])
-            authorized_users_str = [str(uid) for uid in authorized_users]
-            
-            if str(user_id) in authorized_users_str:
-                # Authorized user trying to use admin command
-                logger.info(f"⚠️ Authorized user {user_id} tried to use admin command: {func.__name__}")
-                await update.message.reply_text("❌ Admin commands only. You have USER access, not ADMIN access.")
-            else:
-                # Completely unauthorized user
-                logger.warning(f"🚫 Unauthorized access by {user_id}")
-                await update.message.reply_text("❌ Only admins can use this command.")
+            logger.warning(f"🚫 Unauthorized access by {user_id}")
+            await update.message.reply_text("❌ Only admins can use this command.")
             return
         
         return await func(update, context)
@@ -131,53 +121,8 @@ def reply_required(func):
         return await func(update, context)
     return wrapper
 
-def authorized_only(func):
-    """Check if user is authorized to use bot."""
-    @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = update.effective_user.id
-        # Admins bypass authorization check
-        if user_id in ADMIN_IDS:
-            return await func(update, context)
-        
-        # Check if user is authorized (handle both int and string types)
-        authorized_users = bot_data.get("metadata", {}).get("authorized_users", [])
-        # Convert to strings for comparison to handle JSON type issues
-        authorized_users_str = [str(uid) for uid in authorized_users]
-        if str(user_id) not in authorized_users_str:
-            await update.message.reply_text("❌ You are not authorized to use this bot.\nContact an admin for access.")
-            logger.warning(f"🚫 Unauthorized bot access attempt by {user_id}")
-            return
-        
-        return await func(update, context)
-    return wrapper
 
-def unauthorized_blocked(func):
-    """Block unauthorized users from using protected commands."""
-    @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = update.effective_user.id
-        # Admins always allowed
-        if user_id in ADMIN_IDS:
-            return await func(update, context)
-        
-        # Check if user is authorized
-        authorized_users = bot_data.get("metadata", {}).get("authorized_users", [])
-        authorized_users_str = [str(uid) for uid in authorized_users]
-        
-        if str(user_id) not in authorized_users_str:
-            # Unauthorized user trying to use protected command
-            logger.info(f"⚠️ Unauthorized user {user_id} tried to use protected command: {func.__name__}")
-            await update.message.reply_text(
-                "❌ This command requires authorization.\n\n"
-                "You can only use: Fun commands, Profile commands, and Utility commands.\n"
-                "Contact an admin for full access."
-            )
-            return
-        
-        # Authorized user - allow
-        return await func(update, context)
-    return wrapper
+
 
 def user_tracking(func):
     """Track user statistics."""
@@ -423,7 +368,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 
 @user_tracking
-@unauthorized_blocked
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced stats command."""
     user_id = str(update.effective_user.id)
@@ -484,35 +428,60 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show latest updates and new features."""
     try:
         update_msg = """
-📢 **LATEST UPDATES & NEW FEATURES**
+📢 **WHISKY BOT - LATEST UPDATES**
 
-**🔧 RECENT FIXES:**
-• Fixed `/ai` command - Now works with proper async handling
-• Fixed `/speak` mode - AI responds to all messages smoothly
-• Fixed `/rape` command - Ignores bot replies
-• Fixed `/authorize` - User ID consistency
-• Improved `/ping` - Shows actual response time
+**✨ RECENT CHANGES:**
+• ✅ Removed authorization system - all users have access
+• ✅ Removed /authorize commands - no more access restrictions
+• ✅ Simplified admin system - cleaner codebase
 
-**🎉 NEW FEATURES:**
-• `/test` - Admin diagnostic tool for AI health
-• Enhanced error messages with detailed logging
-• Better AI initialization with live status updates
+**🎮 FUN COMMANDS:**
+• /roll [sides] - Roll dice
+• /coin - Flip a coin
+• /calc <math> - Calculator
+• /echo <text> - Echo text
+• /time - Current time
+• /roast - Get a funny roast
+• /ship <user1> <user2> - Love calculator
+• /rate <thing> - Rate something
+• /meme - Random meme
+• /truth - Truth question
+• /dare - Dare challenge
+• /compliment - Get a compliment
+• /insult - Get an insult
+• /ascii <text> - ASCII art
+• /hack <user> - Fake hacking
+• /fancy <text> - Fancy fonts
+• /hotrate - Hotness rating
+• /iq <user> - IQ score
+• /gayrate - Fun vibes meter
 
-**📊 BOT STATUS:**
-• Total Commands: 40+
-• Admin Tools: 15
-• Fun Commands: 25+
-• AI Integration: Active ✅
+**🤖 AI COMMANDS:**
+• /ai <question> - Ask Whisky AI
+• /speak - AI respond mode (admin)
 
-**🚀 COMMAND HIGHLIGHTS:**
-• `/ai <question>` - Ask Whisky AI
-• `/speak` - Enable AI respond mode (admin)
-• `/stats` - View your usage
-• `/help` - Full command list
+**🛡️ ADMIN COMMANDS:**
+• /warn <user> - Issue warning
+• /warns <user> - Check warnings
+• /clear_warns - Clear all warnings
+• /Shut <user> - Silence user
+• /unmute - Restore user
+• /kick - Remove user
+• /ban - Ban user
+• /unban - Unban user
+• /info <user> - User info
+• /admins - List admins
 
-**📝 VERSION:** 2.5+
+**📊 UTILITY:**
+• /start - Welcome message
+• /help - Full command list
+• /stats - Your statistics
+• /ping - Bot status
+• /updates - This message
 
-For full changelog, use `/help`
+**📝 VERSION:** 2.6+
+
+🎉 Enjoy using Whisky Bot!
         """
         await update.message.reply_text(update_msg, parse_mode="Markdown")
         logger.info(f"📢 {update.effective_user.id} viewed updates")
@@ -547,7 +516,6 @@ async def test_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @user_tracking
 @rate_limit(cooldown_type="ai")
-@unauthorized_blocked
 async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /ai command to ask Whisky AI."""
     user_id = str(update.effective_user.id)
@@ -1161,125 +1129,6 @@ async def debug_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Debug warns error: {e}")
         await update.message.reply_text(f"❌ Error: {e}")
 
-@admin_only
-@reply_required
-@user_tracking
-async def authorize(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Authorize a user to access the bot - reply required."""
-    try:
-        # Get user from reply (reply_required decorator ensures this exists)
-        user = update.message.reply_to_message.from_user
-        user_id = int(user.id)
-        username = user.first_name or "User"
-        
-        logger.info(f"🔐 AUTHORIZE: Processing {username} ({user_id})")
-        
-        # Initialize authorized_users list if needed
-        if "metadata" not in bot_data:
-            bot_data["metadata"] = {}
-        if "authorized_users" not in bot_data["metadata"]:
-            bot_data["metadata"]["authorized_users"] = []
-        
-        authorized_users = bot_data["metadata"]["authorized_users"]
-        
-        # Convert all to integers for consistency
-        authorized_users_int = [int(uid) for uid in authorized_users]
-        logger.info(f"📋 Current authorized users: {authorized_users_int}")
-        
-        # Check if already authorized - 100% verification
-        if user_id in authorized_users_int:
-            await update.message.reply_text(f"✅ {username} is ALREADY authorized")
-            logger.info(f"ℹ️ {username} ({user_id}) was already authorized - no change")
-            return
-        
-        # Add to authorized users (as integer) and save with consistency
-        new_authorized_list = authorized_users_int + [user_id]
-        bot_data["metadata"]["authorized_users"] = new_authorized_list
-        save_data(bot_data)
-        
-        # Verify the save was successful
-        verification_data = load_data()
-        verify_list = verification_data.get("metadata", {}).get("authorized_users", [])
-        verify_list_int = [int(uid) for uid in verify_list]
-        
-        if user_id in verify_list_int:
-            await update.message.reply_text(f"✅ {username} is NOW authorized to use the bot!")
-            logger.info(f"✅ {username} ({user_id}) AUTHORIZED - saved and verified")
-        else:
-            logger.error(f"❌ AUTHORIZATION FAILED: {username} ({user_id}) was not saved properly")
-            await update.message.reply_text(f"❌ Authorization failed - could not save")
-        
-    except Exception as e:
-        logger.error(f"❌ Authorize error: {type(e).__name__}: {e}", exc_info=True)
-        await update.message.reply_text(f"❌ Error: {str(e)[:80]}")
-
-@admin_only
-@reply_required
-async def deauthorize(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove authorization from a user."""
-    try:
-        user = update.message.reply_to_message.from_user
-        user_id = int(user.id)  # Ensure integer
-        username = user.first_name or "User"
-        
-        if "metadata" not in bot_data or "authorized_users" not in bot_data["metadata"]:
-            await update.message.reply_text(f"❌ {username} is not authorized")
-            return
-        
-        authorized_users = bot_data["metadata"]["authorized_users"]
-        
-        # Convert to integers for comparison
-        authorized_users_int = [int(uid) for uid in authorized_users]
-        
-        # Check if authorized
-        if user_id not in authorized_users_int:
-            await update.message.reply_text(f"❌ {username} is not authorized")
-            logger.info(f"ℹ️ {username} was not authorized")
-            return
-        
-        # Remove from authorized users
-        bot_data["metadata"]["authorized_users"] = [uid for uid in authorized_users_int if uid != user_id]
-        save_data(bot_data)
-        
-        await update.message.reply_text(f"🚫 {username} is no longer authorized")
-        logger.info(f"🚫 {username} ({user_id}) deauthorized")
-        
-    except Exception as e:
-        logger.error(f"Deauthorize error: {e}")
-        await update.message.reply_text(f"❌ Error: {e}")
-
-@admin_only
-async def authorized_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List all authorized users."""
-    try:
-        if "metadata" not in bot_data or "authorized_users" not in bot_data["metadata"]:
-            await update.message.reply_text("📊 No authorized users yet")
-            return
-        
-        authorized_users = bot_data["metadata"]["authorized_users"]
-        
-        if not authorized_users:
-            await update.message.reply_text("📊 No authorized users yet")
-            return
-        
-        # Convert to integers and remove duplicates
-        authorized_users_int = list(set(int(uid) for uid in authorized_users))
-        # Update the data to ensure consistency
-        bot_data["metadata"]["authorized_users"] = authorized_users_int
-        save_data(bot_data)
-        
-        msg = "**✅ AUTHORIZED USERS**\n\n"
-        for uid in sorted(authorized_users_int):
-            msg += f"• {uid}\n"
-        
-        msg += f"\n**Total:** {len(authorized_users_int)} users"
-        await update.message.reply_text(msg, parse_mode="Markdown")
-        logger.info(f"📊 Authorized list viewed - {len(authorized_users_int)} users")
-        
-    except Exception as e:
-        logger.error(f"Authorized list error: {e}")
-        await update.message.reply_text(f"❌ Error: {e}")
-
 @user_tracking
 async def roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Roll dice command."""
@@ -1369,7 +1218,6 @@ async def time_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to get time")
 
 @user_tracking
-@unauthorized_blocked
 async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tell a random Rape with target user's name - only works on user messages, not bots."""
     import random
@@ -1877,7 +1725,6 @@ async def unspeak(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 
 @user_tracking
-@authorized_only
 async def roast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Roast a user with a funny insult."""
     roasts = [
@@ -1908,7 +1755,6 @@ async def roast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to roast")
 
 @user_tracking
-@authorized_only
 async def ship(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Calculate love percentage between two users."""
     try:
@@ -1950,7 +1796,6 @@ async def ship(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to ship")
 
 @user_tracking
-@authorized_only
 async def rate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rate something 1-10."""
     try:
@@ -1973,7 +1818,6 @@ async def rate_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to rate")
 
 @user_tracking
-@authorized_only
 async def meme(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get a random meme description."""
     memes = [
@@ -1997,7 +1841,6 @@ async def meme(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to get meme")
 
 @user_tracking
-@authorized_only
 async def truth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get a random truth question."""
     truths = [
@@ -2021,7 +1864,6 @@ async def truth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to get truth")
 
 @user_tracking
-@authorized_only
 async def dare(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get a random dare challenge."""
     dares = [
@@ -2045,7 +1887,6 @@ async def dare(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to get dare")
 
 @user_tracking
-@authorized_only
 async def compliment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Give someone a compliment."""
     compliments = [
@@ -2076,7 +1917,6 @@ async def compliment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to compliment")
 
 @user_tracking
-@authorized_only
 async def insult(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Give someone a funny insult."""
     insults = [
@@ -2107,7 +1947,6 @@ async def insult(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to insult")
 
 @user_tracking
-@authorized_only
 async def ascii_art(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Convert text to ASCII art style."""
     try:
@@ -2140,7 +1979,6 @@ async def ascii_art(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to create ASCII art")
 
 @user_tracking
-@authorized_only
 async def hack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Fake hacking animation for a user."""
     try:
@@ -2174,7 +2012,6 @@ async def hack(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to hack")
 
 @user_tracking
-@authorized_only
 async def fancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Convert text to fancy fonts."""
     fancy_map = {
@@ -2207,7 +2044,6 @@ async def fancy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to fancy")
 
 @user_tracking
-@authorized_only
 async def hotrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rate someone's hotness percentage."""
     try:
@@ -2244,7 +2080,6 @@ async def hotrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to rate hotness")
 
 @user_tracking
-@authorized_only
 async def iq_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Generate a random IQ score for a user."""
     try:
@@ -2283,7 +2118,6 @@ async def iq_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to check IQ")
 
 @user_tracking
-@authorized_only
 async def gayrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rate someone's "gay" (fun) percentage - just a meme stat."""
     try:
@@ -2417,6 +2251,7 @@ def setup_bot():
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("update", update_command))
+    app.add_handler(CommandHandler("updates", update_command))
     app.add_handler(CommandHandler("test", test_ai))
     app.add_handler(CommandHandler("ai", ai_command))
     app.add_handler(CommandHandler("ilikeu", warn))
@@ -2432,9 +2267,6 @@ def setup_bot():
     app.add_handler(CommandHandler("info", user_info))
     app.add_handler(CommandHandler("admins", admins))
     app.add_handler(CommandHandler("debug_warns", debug_warns))
-    app.add_handler(CommandHandler("authorize", authorize))
-    app.add_handler(CommandHandler("deauthorize", deauthorize))
-    app.add_handler(CommandHandler("authorized", authorized_list))
     app.add_handler(CommandHandler("roll", roll))
     app.add_handler(CommandHandler("coin", coin))
     app.add_handler(CommandHandler("calc", calc))
