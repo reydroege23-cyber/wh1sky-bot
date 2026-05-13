@@ -25,9 +25,8 @@ async def ask_gemini(prompt: str) -> str:
     """
     try:
         model = genai.GenerativeModel(AI_MODEL)
-        loop = asyncio.get_event_loop()
         response = await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: model.generate_content(prompt)),
+            asyncio.to_thread(model.generate_content, prompt),
             timeout=AI_TIMEOUT
         )
         

@@ -271,9 +271,8 @@ async def ask_ai(message: str) -> str:
     
     try:
         # Run the synchronous API call in a thread pool to avoid blocking
-        loop = asyncio.get_event_loop()
         response = await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: model.generate_content(message)),
+            asyncio.to_thread(model.generate_content, message),
             timeout=AI_TIMEOUT
         )
         
