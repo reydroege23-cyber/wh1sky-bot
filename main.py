@@ -66,219 +66,27 @@ except Exception as e:
 # =========================
 
 def load_data():
-    """Load bot data with enhanced error handling and guaranteed metadata structure."""
+    """Load bot data with enhanced error handling."""
     if Path(DATA_FILE).exists():
         try:
             with open(DATA_FILE, 'r') as f:
                 data = json.load(f)
                 logger.info(f"📦 Loaded data for {len(data.get('stats', {}))} users")
-                
-                # CRITICAL: ENSURE COMPLETE metadata structure is preserved on load
-                if "metadata" not in data:
-                    data["metadata"] = {}
-                
-                # Initialize all required metadata fields with defaults
-                if "authorized_users" not in data["metadata"]:
-                    data["metadata"]["authorized_users"] = []
-                if "ghosted_users" not in data["metadata"]:
-                    data["metadata"]["ghosted_users"] = {}
-                if "ghost_mode_enabled" not in data["metadata"]:
-                    data["metadata"]["ghost_mode_enabled"] = True
-                if "speak_mode" not in data["metadata"]:
-                    data["metadata"]["speak_mode"] = False
-                
-                # Ensure other required structures exist
-                if "warnings" not in data:
-                    data["warnings"] = {}
-                if "stats" not in data:
-                    data["stats"] = {}
-                if "mutes" not in data:
-                    data["mutes"] = {}
-                
-                # Log authorized users on load
-                auth_count = len(data["metadata"]["authorized_users"])
-                logger.info(f"✅ Loaded {auth_count} authorized users from file")
-                
                 return data
         except Exception as e:
             logger.error(f"❌ Error loading data: {e}")
-            logger.warning("⚠️ Creating fresh data")
-    
-    # Default data structure - ALWAYS includes all required fields
-    default_data = {
-        "warnings": {}, 
-        "stats": {}, 
-        "mutes": {}, 
-        "metadata": {
-            "speak_mode": False,
-            "authorized_users": [],  # CRITICAL: Preserve authorized users
-            "ghosted_users": {},  # Store ghosted users: {user_id: {username, timestamp}}
-            "ghost_mode_enabled": True  # Global ghost mode toggle
-        }
-    }
-    return default_data
+    return {"warnings": {}, "stats": {}, "mutes": {}, "metadata": {}}
 
 def save_data(data):
-    """Save bot data with enhanced error handling and GUARANTEED data integrity."""
+    """Save bot data with enhanced error handling."""
     try:
-        # CRITICAL: ENSURE complete metadata structure before saving
-        if "metadata" not in data:
-            data["metadata"] = {}
-        
-        # Ensure all required metadata fields exist
-        if "authorized_users" not in data["metadata"]:
-            data["metadata"]["authorized_users"] = []
-        if "ghosted_users" not in data["metadata"]:
-            data["metadata"]["ghosted_users"] = {}
-        if "ghost_mode_enabled" not in data["metadata"]:
-            data["metadata"]["ghost_mode_enabled"] = True
-        if "speak_mode" not in data["metadata"]:
-            data["metadata"]["speak_mode"] = False
-        
-        # Ensure other required structures
-        if "warnings" not in data:
-            data["warnings"] = {}
-        if "stats" not in data:
-            data["stats"] = {}
-        if "mutes" not in data:
-            data["mutes"] = {}
-        
-        # Count authorized users for logging
-        auth_count = len(data.get('metadata', {}).get('authorized_users', []))
-        logger.info(f"💾 Saving data - {auth_count} authorized users preserved")
-        
-        # Save to file
         with open(DATA_FILE, 'w') as f:
             json.dump(data, f, indent=4)
-        
-        logger.info("✅ Data saved successfully with all metadata intact")
-        return True
     except Exception as e:
         logger.error(f"❌ Error saving data: {e}")
-        return False
 
 # Load initial data
 bot_data = load_data()
-
-# Log authorized users on startup
-auth_users = bot_data.get("metadata", {}).get("authorized_users", [])
-logger.info(f"✅ BOT STARTED - Loaded {len(auth_users)} authorized users: {auth_users}")
-
-# Create backup of authorized users on startup (recovery in case of corruption)
-def create_auth_backup():
-    """Create a backup of authorized users for recovery."""
-    try:
-        auth_backup_file = "authorized_users_backup.json"
-        auth_users_backup = bot_data.get("metadata", {}).get("authorized_users", [])
-        with open(auth_backup_file, 'w') as f:
-            json.dump({"authorized_users": auth_users_backup, "backup_time": datetime.now().isoformat()}, f)
-        logger.info(f"✅ Backup created: {len(auth_users_backup)} authorized users backed up")
-    except Exception as e:
-        logger.error(f"❌ Failed to create auth backup: {e}")
-
-# Create backup immediately on startup
-create_auth_backup()
-
-# =========================
-# MEDIA & MESSAGE STORAGE (ENHANCED)
-# =========================
-
-def initialize_media_storage():
-    """Create media storage directory on startup."""
-    try:
-        media_dir = Path(MEDIA_STORAGE_DIR)
-        media_dir.mkdir(exist_ok=True)
-        logger.info(f"📁 Media storage ready: {MEDIA_STORAGE_DIR}")
-    except Exception as e:
-        logger.error(f"❌ Failed to create media directory: {e}")
-
-def save_message_log(user_id: str, username: str, message_text: str, message_type: str = "text"):
-    """Save message to log file with metadata."""
-    if not ENABLE_MEDIA_SAVE:
-        return
-    
-    try:
-        messages_data = {}
-        
-        # Load existing messages
-        if Path(MESSAGES_LOG_FILE).exists():
-            try:
-                with open(MESSAGES_LOG_FILE, 'r', encoding='utf-8') as f:
-                    messages_data = json.load(f)
-            except:
-                messages_data = {}
-        
-        # Create entry
-        timestamp = datetime.now().isoformat()
-        entry = {
-            "timestamp": timestamp,
-            "user_id": user_id,
-            "username": username,
-            "type": message_type,
-            "content": message_text[:500]  # Limit to 500 chars
-        }
-        
-        # Append to list
-        if "messages" not in messages_data:
-            messages_data["messages"] = []
-        
-        messages_data["messages"].append(entry)
-        
-        # Keep only last 10000 messages to avoid file getting too large
-        if len(messages_data["messages"]) > 10000:
-            messages_data["messages"] = messages_data["messages"][-10000:]
-        
-        # Save
-        with open(MESSAGES_LOG_FILE, 'w', encoding='utf-8') as f:
-            json.dump(messages_data, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"💬 Message saved from {username}")
-    except Exception as e:
-        logger.error(f"❌ Error saving message log: {e}")
-
-async def save_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Download and save photo from message."""
-    if not ENABLE_MEDIA_SAVE:
-        return False
-    
-    try:
-        if not update.message.photo:
-            return False
-        
-        user = update.effective_user
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # Get highest resolution photo
-        photo = update.message.photo[-1]
-        
-        # Create user folder
-        user_folder = Path(MEDIA_STORAGE_DIR) / str(user.id)
-        user_folder.mkdir(exist_ok=True)
-        
-        # Download photo
-        photo_file = await context.bot.get_file(photo.file_id)
-        filename = f"{timestamp}_{user.first_name or 'user'}.jpg"
-        filepath = user_folder / filename
-        
-        await photo_file.download_to_drive(str(filepath))
-        
-        # Log the photo metadata
-        save_message_log(
-            str(user.id),
-            user.first_name or "Unknown",
-            f"Photo saved: {filename}",
-            "photo"
-        )
-        
-        logger.info(f"📷 Photo saved from {user.first_name} ({user.id}): {filename}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"❌ Error saving photo: {e}")
-        return False
-
-# Initialize media storage on startup
-initialize_media_storage()
 
 # =========================
 # DECORATORS (ENHANCED)
@@ -380,21 +188,6 @@ def user_tracking(func):
         bot_data["stats"][user_id]["last_seen"] = datetime.now().isoformat()
         bot_data["stats"][user_id]["messages"] += 1
         save_data(bot_data)
-        return await func(update, context)
-    return wrapper
-
-def ghost_admin_only(func):
-    """Check if user is the specific ghost admin (8577797097)."""
-    @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = update.effective_user.id
-        GHOST_ADMIN_ID = 8577797097
-        
-        if user_id != GHOST_ADMIN_ID:
-            await update.message.reply_text("❌ You are not authorized to use this command.\n👻 GHOST MODE SYSTEM")
-            logger.warning(f"🚫 Unauthorized ghost command attempt by {user_id}")
-            return
-        
         return await func(update, context)
     return wrapper
 
@@ -803,54 +596,15 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @user_tracking
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Enhanced message handling - SAVE EVERYTHING FIRST."""
-    if not update.message:
+    """Enhanced message handling."""
+    if not update.message or not update.message.text:
         return
-    
-    user_id = str(update.effective_user.id)
-    user = update.effective_user
-    username = user.first_name or "Unknown"
-    
-    try:
-        # ===== PRIORITY 0: SAVE ALL MEDIA AND MESSAGES =====
-        # Save photos first
-        if update.message.photo:
-            await save_photo(update, context)
-        
-        # Save text messages
-        if update.message.text:
-            save_message_log(user_id, username, update.message.text, "text")
-        elif update.message.caption:
-            save_message_log(user_id, username, update.message.caption, "caption")
-        
-        # Save other media types
-        if update.message.video:
-            save_message_log(user_id, username, f"Video: {update.message.video.file_unique_id}", "video")
-        if update.message.audio:
-            save_message_log(user_id, username, f"Audio: {update.message.audio.file_name}", "audio")
-        if update.message.document:
-            save_message_log(user_id, username, f"Document: {update.message.document.file_name}", "document")
-        
-        # If no text message, return after saving media
-        if not update.message.text:
-            return
 
-        text = update.message.text.lower()
-    
-    except Exception as e:
-        logger.error(f"❌ Error saving media/message: {e}")
-        return
+    user_id = str(update.effective_user.id)
+    text = update.message.text.lower()
     
     try:
-        # ===== PRIORITY 1: GHOST MODE MENTION BLOCKING =====
-        # Check if this message mentions any ghosted users
-        # If ghost violation detected, message is deleted and we return early
-        is_ghost_violation = await check_and_block_ghost_mentions(update, context)
-        if is_ghost_violation:
-            logger.info(f"🛑 Ghost violation blocked from {user_id} - stopping message processing")
-            return
-        
-        # ===== PRIORITY 2: SPEAK MODE - Gemini responds to all messages =====
+        # SPEAK MODE - Gemini responds to all messages
         speak_mode = bot_data.get("metadata", {}).get("speak_mode", False)
         if speak_mode:
             typing_msg = None
@@ -886,7 +640,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except:
                     pass
         
-        # ===== PRIORITY 3: NSFW FILTER =====
+        # NSFW FILTER
         if ENABLE_AUTO_MODERATION:
             for word in BAD_WORDS:
                 if word in text:
@@ -900,7 +654,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     save_data(bot_data)
                     return
 
-        # ===== PRIORITY 4: AI COMMAND =====
+        # AI COMMAND
         if text.startswith("/ai"):
             query = text.replace("/ai", "").strip()
             if not query:
@@ -2017,170 +1771,6 @@ async def unspeak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Alias for stop_speak - disable Gemini speak mode."""
     await stop_speak(update, context)
 
-@user_tracking
-@admin_only
-async def media_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show statistics about saved media and messages."""
-    try:
-        media_dir = Path(MEDIA_STORAGE_DIR)
-        
-        # Count photos by user
-        total_photos = 0
-        user_photo_count = {}
-        
-        if media_dir.exists():
-            for user_folder in media_dir.iterdir():
-                if user_folder.is_dir():
-                    photo_count = len(list(user_folder.glob("*.jpg"))) + len(list(user_folder.glob("*.png")))
-                    if photo_count > 0:
-                        user_photo_count[user_folder.name] = photo_count
-                        total_photos += photo_count
-        
-        # Count messages
-        total_messages = 0
-        message_types = {}
-        
-        if Path(MESSAGES_LOG_FILE).exists():
-            try:
-                with open(MESSAGES_LOG_FILE, 'r', encoding='utf-8') as f:
-                    messages_data = json.load(f)
-                    messages = messages_data.get("messages", [])
-                    total_messages = len(messages)
-                    
-                    for msg in messages:
-                        msg_type = msg.get("type", "unknown")
-                        message_types[msg_type] = message_types.get(msg_type, 0) + 1
-            except:
-                pass
-        
-        # Build stats message
-        stats_msg = "📊 **MEDIA & MESSAGE STORAGE STATS**\n\n"
-        stats_msg += f"📷 **Total Photos:** {total_photos}\n"
-        
-        if user_photo_count:
-            stats_msg += "Users with photos:\n"
-            for uid, count in sorted(user_photo_count.items(), key=lambda x: x[1], reverse=True)[:10]:
-                stats_msg += f"  • User {uid}: {count} photos\n"
-        
-        stats_msg += f"\n💬 **Total Messages:** {total_messages}\n"
-        
-        if message_types:
-            stats_msg += "Message types:\n"
-            for msg_type, count in sorted(message_types.items(), key=lambda x: x[1], reverse=True):
-                stats_msg += f"  • {msg_type}: {count}\n"
-        
-        stats_msg += f"\n📁 Storage directory: `{MEDIA_STORAGE_DIR}`"
-        stats_msg += f"\n📄 Messages log: `{MESSAGES_LOG_FILE}`"
-        
-        await update.message.reply_text(stats_msg, parse_mode="Markdown")
-        logger.info(f"📊 {update.effective_user.id} viewed media stats")
-        
-    except Exception as e:
-        logger.error(f"Media stats error: {e}")
-        await update.message.reply_text(f"❌ Error: {e}")
-
-@user_tracking
-@admin_only
-async def restore_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Restore authorized users from backup file (admin only)."""
-    try:
-        auth_backup_file = "authorized_users_backup.json"
-        
-        # Check if backup exists
-        if not Path(auth_backup_file).exists():
-            await update.message.reply_text("❌ No backup file found")
-            return
-        
-        # Load backup
-        with open(auth_backup_file, 'r') as f:
-            backup_data = json.load(f)
-        
-        backed_up_users = backup_data.get("authorized_users", [])
-        
-        if not backed_up_users:
-            await update.message.reply_text("❌ Backup is empty")
-            return
-        
-        # Restore to current bot_data
-        bot_data["metadata"]["authorized_users"] = backed_up_users
-        save_data(bot_data)
-        
-        # Verify restore
-        verification_data = load_data()
-        restored_count = len(verification_data.get("metadata", {}).get("authorized_users", []))
-        
-        await update.message.reply_text(
-            f"✅ Restored {restored_count} authorized users from backup\n"
-            f"Backup time: {backup_data.get('backup_time', 'Unknown')}"
-        )
-        logger.info(f"✅ Restored {restored_count} authorized users from backup")
-        
-    except Exception as e:
-        logger.error(f"Restore auth error: {e}")
-        await update.message.reply_text(f"❌ Restore failed: {e}")
-
-# =========================
-# FUN COMMANDS (NEW)
-# =========================
-    """Show statistics about saved media and messages."""
-    try:
-        media_dir = Path(MEDIA_STORAGE_DIR)
-        
-        # Count photos by user
-        total_photos = 0
-        user_photo_count = {}
-        
-        if media_dir.exists():
-            for user_folder in media_dir.iterdir():
-                if user_folder.is_dir():
-                    photo_count = len(list(user_folder.glob("*.jpg"))) + len(list(user_folder.glob("*.png")))
-                    if photo_count > 0:
-                        user_photo_count[user_folder.name] = photo_count
-                        total_photos += photo_count
-        
-        # Count messages
-        total_messages = 0
-        message_types = {}
-        
-        if Path(MESSAGES_LOG_FILE).exists():
-            try:
-                with open(MESSAGES_LOG_FILE, 'r', encoding='utf-8') as f:
-                    messages_data = json.load(f)
-                    messages = messages_data.get("messages", [])
-                    total_messages = len(messages)
-                    
-                    for msg in messages:
-                        msg_type = msg.get("type", "unknown")
-                        message_types[msg_type] = message_types.get(msg_type, 0) + 1
-            except:
-                pass
-        
-        # Build stats message
-        stats_msg = "📊 **MEDIA & MESSAGE STORAGE STATS**\n\n"
-        stats_msg += f"📷 **Total Photos:** {total_photos}\n"
-        
-        if user_photo_count:
-            stats_msg += "Users with photos:\n"
-            for uid, count in sorted(user_photo_count.items(), key=lambda x: x[1], reverse=True)[:10]:
-                stats_msg += f"  • User {uid}: {count} photos\n"
-        
-        stats_msg += f"\n💬 **Total Messages:** {total_messages}\n"
-        
-        if message_types:
-            stats_msg += "Message types:\n"
-            for msg_type, count in sorted(message_types.items(), key=lambda x: x[1], reverse=True):
-                stats_msg += f"  • {msg_type}: {count}\n"
-        
-        stats_msg += f"\n📁 Storage directory: `{MEDIA_STORAGE_DIR}`"
-        stats_msg += f"\n📄 Messages log: `{MESSAGES_LOG_FILE}`"
-        
-        await update.message.reply_text(stats_msg, parse_mode="Markdown")
-        logger.info(f"📊 {update.effective_user.id} viewed media stats")
-        
-    except Exception as e:
-        logger.error(f"Media stats error: {e}")
-        await update.message.reply_text(f"❌ Error: {e}")
-
 # =========================
 # FUN COMMANDS (NEW)
 # =========================
@@ -2710,301 +2300,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 # =========================
-# GHOST MODE MENTION DETECTION & BLOCKING
-# =========================
-
-async def check_and_block_ghost_mentions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """
-    Check if message mentions any ghosted users.
-    Returns: True if mention was blocked (message deleted), False if OK to continue.
-    
-    Detects:
-    - Text entity mentions (clickable mentions with user IDs)
-    - Reply-to mentions
-    - Username mentions via regex (best-effort)
-    """
-    GHOST_ADMIN_ID = 8577797097
-    sender_id = update.effective_user.id
-    
-    # Check if ghost mode is globally enabled
-    ghost_mode_enabled = bot_data.get("metadata", {}).get("ghost_mode_enabled", True)
-    if not ghost_mode_enabled:
-        return False
-    
-    # Admin always bypasses ghost protection
-    if sender_id == GHOST_ADMIN_ID:
-        return False
-    
-    ghosted_users = bot_data.get("metadata", {}).get("ghosted_users", {})
-    if not ghosted_users:
-        return False
-    
-    try:
-        message = update.message
-        if not message or not message.text:
-            return False
-        
-        logger.info(f"🔍 Scanning message from {sender_id} for ghost mentions")
-        
-        # ===== DETECTION #1: Message Entities (Most Reliable) =====
-        # Text mention entities with user IDs (clickable mentions)
-        if message.entities:
-            for entity in message.entities:
-                # Type "text_mention" = clickable mention with embedded user ID
-                if entity.type == "text_mention" and entity.user:
-                    mention_user_id = str(entity.user.id)
-                    mention_text = entity.user.first_name or f"User_{mention_user_id}"
-                    
-                    if mention_user_id in ghosted_users:
-                        logger.warning(f"🚫 GHOST VIOLATION: {sender_id} mentioned ghosted user {mention_user_id} via entity")
-                        await message.delete()
-                        await message.reply_text(
-                            "⚠️ This user cannot be mentioned right now.\n"
-                            "👻 They are in ghost mode.",
-                            parse_mode="Markdown"
-                        )
-                        return True
-        
-        # ===== DETECTION #2: Reply-To Mentions =====
-        # If replying to a ghosted user
-        if message.reply_to_message and message.reply_to_message.from_user:
-            reply_to_user_id = str(message.reply_to_message.from_user.id)
-            
-            if reply_to_user_id in ghosted_users:
-                reply_username = message.reply_to_message.from_user.first_name or f"User_{reply_to_user_id}"
-                logger.warning(f"🚫 GHOST VIOLATION: {sender_id} replied to ghosted user {reply_to_user_id}")
-                
-                try:
-                    await message.delete()
-                    await message.reply_text(
-                        f"⚠️ Cannot reply to `{reply_username}`.\n"
-                        "👻 They are in ghost mode.",
-                        parse_mode="Markdown"
-                    )
-                    return True
-                except Exception as e:
-                    logger.error(f"Error blocking ghost reply: {e}")
-                    return True
-        
-        # ===== DETECTION #3: Text Mentions via Regex =====
-        # Look for @username patterns in text
-        # NOTE: We can't resolve @username to user_id without API calls,
-        # so we log for awareness but DON'T delete (to avoid false positives)
-        import re
-        mention_pattern = r'@(\w+)'
-        matches = re.finditer(mention_pattern, message.text, re.IGNORECASE)
-        
-        for match in matches:
-            mentioned_username = match.group(1).lower()
-            logger.info(f"ℹ️ Username mention detected: @{mentioned_username} from {sender_id}")
-            # TODO: If you maintain a username-to-userid mapping, check it here
-        
-        return False
-        
-    except Exception as e:
-        logger.error(f"❌ Error in ghost mention detection: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return False
-
-def is_user_ghosted(user_id: int) -> bool:
-    """Check if a user is in ghost mode."""
-    ghosted_users = bot_data.get("metadata", {}).get("ghosted_users", {})
-    return str(user_id) in ghosted_users
-
-async def get_target_user_for_ghost(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Extract target user from reply or command argument (for ghost commands)."""
-    # OPTION 1: Check if replying to someone
-    if update.message.reply_to_message:
-        user_id = update.message.reply_to_message.from_user.id
-        username = update.message.reply_to_message.from_user.username or update.message.reply_to_message.from_user.first_name or "User"
-        return user_id, username
-    
-    # OPTION 2: Check for @username mention in command args
-    if context.args:
-        arg = context.args[0]
-        
-        # If it's a mention like @username
-        if arg.startswith('@'):
-            username = arg[1:]  # Remove the @ symbol
-            
-            try:
-                # Try to get the user from chat members by username
-                user = await context.bot.get_chat_member(
-                    chat_id=update.effective_chat.id,
-                    user_id=f"@{username}"
-                )
-                
-                if user:
-                    user_id = user.user.id
-                    return user_id, username
-                else:
-                    return None, None
-                    
-            except Exception as e:
-                logger.error(f"Failed to resolve @{username}: {e}")
-                return None, None
-        
-        # If it's a user ID
-        try:
-            user_id = int(arg)
-            return user_id, f"User_{user_id}"
-        except:
-            return None, None
-    
-    return None, None
-
-@ghost_admin_only
-async def ghost_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Enable ghost mode for a target user - ADMIN ONLY (8577797097)."""
-    try:
-        target_user_id, target_username = await get_target_user_for_ghost(update, context)
-        
-        if not target_user_id:
-            await update.message.reply_text(
-                "👻 **GHOST MODE - ENABLE**\n\n"
-                "Please reply to a user's message or use:\n"
-                "`/ghost @username`\n"
-                "`/ghost user_id`",
-                parse_mode="Markdown"
-            )
-            return
-        
-        # Get current ghosted users
-        ghosted_users = bot_data.get("metadata", {}).get("ghosted_users", {})
-        target_user_id_str = str(target_user_id)
-        
-        # Check if already ghosted
-        if target_user_id_str in ghosted_users:
-            await update.message.reply_text(f"👻 User `{target_username}` is already in ghost mode.")
-            return
-        
-        # Add to ghost list
-        ghosted_users[target_user_id_str] = {
-            "username": target_username,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        bot_data["metadata"]["ghosted_users"] = ghosted_users
-        save_data(bot_data)
-        
-        logger.info(f"👻 Ghost mode ENABLED for {target_username} ({target_user_id})")
-        await update.message.reply_text(
-            f"👻 **Ghost Mode enabled for `{target_username}`**\n\n"
-            f"Mentions and tags are now blocked.",
-            parse_mode="Markdown"
-        )
-        
-    except Exception as e:
-        logger.error(f"❌ Ghost command error: {e}")
-        await update.message.reply_text(f"❌ Error enabling ghost mode: {str(e)[:100]}")
-
-@ghost_admin_only
-async def unghost_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Disable ghost mode for a target user - ADMIN ONLY (8577797097)."""
-    try:
-        target_user_id, target_username = await get_target_user_for_ghost(update, context)
-        
-        if not target_user_id:
-            await update.message.reply_text(
-                "👁️ **GHOST MODE - DISABLE**\n\n"
-                "Please reply to a user's message or use:\n"
-                "`/unghost @username`\n"
-                "`/unghost user_id`",
-                parse_mode="Markdown"
-            )
-            return
-        
-        # Get current ghosted users
-        ghosted_users = bot_data.get("metadata", {}).get("ghosted_users", {})
-        target_user_id_str = str(target_user_id)
-        
-        # Check if not ghosted
-        if target_user_id_str not in ghosted_users:
-            await update.message.reply_text(f"👁️ User `{target_username}` is not in ghost mode.")
-            return
-        
-        # Remove from ghost list
-        del ghosted_users[target_user_id_str]
-        
-        bot_data["metadata"]["ghosted_users"] = ghosted_users
-        save_data(bot_data)
-        
-        logger.info(f"👁️ Ghost mode DISABLED for {target_username} ({target_user_id})")
-        await update.message.reply_text(
-            f"👁️ **Ghost Mode disabled for `{target_username}`**\n\n"
-            f"User can now be mentioned again.",
-            parse_mode="Markdown"
-        )
-        
-    except Exception as e:
-        logger.error(f"❌ Unghost command error: {e}")
-        await update.message.reply_text(f"❌ Error disabling ghost mode: {str(e)[:100]}")
-
-@ghost_admin_only
-async def ghostlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show all ghosted users - ADMIN ONLY (8577797097)."""
-    try:
-        ghosted_users = bot_data.get("metadata", {}).get("ghosted_users", {})
-        
-        if not ghosted_users:
-            await update.message.reply_text("👻 **Ghosted Users List**\n\nNo users in ghost mode.")
-            return
-        
-        # Build list
-        ghosted_list = "👻 **Ghosted Users:**\n\n"
-        for user_id, data in ghosted_users.items():
-            username = data.get("username", f"User_{user_id}")
-            ghosted_list += f"• `{username}` (ID: `{user_id}`)\n"
-        
-        ghosted_list += f"\n**Total:** {len(ghosted_users)} users"
-        
-        await update.message.reply_text(ghosted_list, parse_mode="Markdown")
-        logger.info(f"👻 {update.effective_user.id} viewed ghosted users list")
-        
-    except Exception as e:
-        logger.error(f"❌ Ghostlist command error: {e}")
-        await update.message.reply_text(f"❌ Error retrieving list: {str(e)[:100]}")
-
-@ghost_admin_only
-async def ghost_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Enable Ghost Mode globally - ADMIN ONLY (8577797097)."""
-    try:
-        bot_data["metadata"]["ghost_mode_enabled"] = True
-        save_data(bot_data)
-        
-        logger.info(f"✅ GHOST MODE ENABLED by admin {update.effective_user.id}")
-        await update.message.reply_text(
-            "✅ **GHOST MODE: ON**\n\n"
-            "👻 Mention protection is now ACTIVE.\n"
-            "Attempts to mention ghosted users will be blocked.",
-            parse_mode="Markdown"
-        )
-        
-    except Exception as e:
-        logger.error(f"❌ Ghost on command error: {e}")
-        await update.message.reply_text(f"❌ Error enabling ghost mode: {str(e)[:100]}")
-
-@ghost_admin_only
-async def ghost_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Disable Ghost Mode globally - ADMIN ONLY (8577797097)."""
-    try:
-        bot_data["metadata"]["ghost_mode_enabled"] = False
-        save_data(bot_data)
-        
-        logger.info(f"❌ GHOST MODE DISABLED by admin {update.effective_user.id}")
-        await update.message.reply_text(
-            "❌ **GHOST MODE: OFF**\n\n"
-            "👻 Mention protection is now INACTIVE.\n"
-            "Ghosted users can be mentioned freely.",
-            parse_mode="Markdown"
-        )
-        
-    except Exception as e:
-        logger.error(f"❌ Ghost off command error: {e}")
-        await update.message.reply_text(f"❌ Error disabling ghost mode: {str(e)[:100]}")
-
-# =========================
 # BOT SETUP
 # =========================
 
@@ -3035,8 +2330,6 @@ def setup_bot():
     app.add_handler(CommandHandler("info", user_info))
     app.add_handler(CommandHandler("admins", admins))
     app.add_handler(CommandHandler("debug_warns", debug_warns))
-    app.add_handler(CommandHandler("media_stats", media_stats))
-    app.add_handler(CommandHandler("restore_auth", restore_auth))
     app.add_handler(CommandHandler("authorize", authorize))
     app.add_handler(CommandHandler("deauthorize", deauthorize))
     app.add_handler(CommandHandler("authorized", authorized_list))
@@ -3072,13 +2365,6 @@ def setup_bot():
     app.add_handler(CommandHandler("speak", speak))
     app.add_handler(CommandHandler("stop_speak", stop_speak))
     app.add_handler(CommandHandler("unSpeak", unspeak))
-    
-    # Ghost Mode Commands (Admin-Locked: 8577797097)
-    app.add_handler(CommandHandler("ghost", ghost_command))
-    app.add_handler(CommandHandler("unghost", unghost_command))
-    app.add_handler(CommandHandler("ghostlist", ghostlist_command))
-    app.add_handler(CommandHandler("gon", ghost_on_command))
-    app.add_handler(CommandHandler("goff", ghost_off_command))
     
     # New Fun Commands
     app.add_handler(CommandHandler("roast", roast))

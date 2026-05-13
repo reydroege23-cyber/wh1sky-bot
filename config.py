@@ -88,18 +88,8 @@ SPAM_TIME = 10  # seconds
 # =========================
 
 AI_MODEL = "gemini-1.5-flash-latest"
-AI_TIMEOUT = 10  # seconds
+AI_TIMEOUT = 30  # seconds (increased for reliability)
 MAX_RESPONSE_LENGTH = 4096  # Telegram limit
-
-# =========================
-# RATE LIMITING (COOLDOWNS)
-# =========================
-
-ENABLE_RATE_LIMITING = True  # Enable cooldowns
-AI_COOLDOWN = 3  # Seconds between /ai commands per user
-SPEAK_COOLDOWN = 2  # Seconds between speak mode messages per user
-COMMAND_COOLDOWN = 1  # Seconds between commands per user
-ADMIN_COOLDOWN = 0  # No cooldown for admins
 
 # =========================
 # DATA STORAGE
@@ -107,14 +97,6 @@ ADMIN_COOLDOWN = 0  # No cooldown for admins
 
 DATA_FILE = "bot_data.json"
 LOG_FILE = "bot.log"
-
-# =========================
-# MEDIA STORAGE
-# =========================
-
-MEDIA_STORAGE_DIR = "saved_media"  # Directory to store photos and messages
-MESSAGES_LOG_FILE = "saved_messages.json"  # Log for all messages sent
-ENABLE_MEDIA_SAVE = True  # Enable saving photos and messages
 
 # =========================
 # LOGGING
