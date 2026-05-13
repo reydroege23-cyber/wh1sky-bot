@@ -66,34 +66,52 @@ except Exception as e:
 # =========================
 
 def load_data():
-    """Load bot data with enhanced error handling."""
+    """Load bot data with enhanced error handling and guaranteed metadata structure."""
     if Path(DATA_FILE).exists():
         try:
             with open(DATA_FILE, 'r') as f:
                 data = json.load(f)
                 logger.info(f"📦 Loaded data for {len(data.get('stats', {}))} users")
                 
-                # ENSURE metadata structure is preserved on load
+                # CRITICAL: ENSURE COMPLETE metadata structure is preserved on load
                 if "metadata" not in data:
                     data["metadata"] = {}
+                
+                # Initialize all required metadata fields with defaults
                 if "authorized_users" not in data["metadata"]:
                     data["metadata"]["authorized_users"] = []
                 if "ghosted_users" not in data["metadata"]:
                     data["metadata"]["ghosted_users"] = {}
                 if "ghost_mode_enabled" not in data["metadata"]:
                     data["metadata"]["ghost_mode_enabled"] = True
+                if "speak_mode" not in data["metadata"]:
+                    data["metadata"]["speak_mode"] = False
+                
+                # Ensure other required structures exist
+                if "warnings" not in data:
+                    data["warnings"] = {}
+                if "stats" not in data:
+                    data["stats"] = {}
+                if "mutes" not in data:
+                    data["mutes"] = {}
+                
+                # Log authorized users on load
+                auth_count = len(data["metadata"]["authorized_users"])
+                logger.info(f"✅ Loaded {auth_count} authorized users from file")
                 
                 return data
         except Exception as e:
             logger.error(f"❌ Error loading data: {e}")
+            logger.warning("⚠️ Creating fresh data")
     
+    # Default data structure - ALWAYS includes all required fields
     default_data = {
         "warnings": {}, 
         "stats": {}, 
         "mutes": {}, 
         "metadata": {
             "speak_mode": False,
-            "authorized_users": [],  # PRESERVE authorized_users on default
+            "authorized_users": [],  # CRITICAL: Preserve authorized users
             "ghosted_users": {},  # Store ghosted users: {user_id: {username, timestamp}}
             "ghost_mode_enabled": True  # Global ghost mode toggle
         }
@@ -101,22 +119,43 @@ def load_data():
     return default_data
 
 def save_data(data):
-    """Save bot data with enhanced error handling and data integrity."""
+    """Save bot data with enhanced error handling and GUARANTEED data integrity."""
     try:
-        # ENSURE metadata structure is preserved before saving
+        # CRITICAL: ENSURE complete metadata structure before saving
         if "metadata" not in data:
             data["metadata"] = {}
+        
+        # Ensure all required metadata fields exist
         if "authorized_users" not in data["metadata"]:
             data["metadata"]["authorized_users"] = []
+        if "ghosted_users" not in data["metadata"]:
+            data["metadata"]["ghosted_users"] = {}
+        if "ghost_mode_enabled" not in data["metadata"]:
+            data["metadata"]["ghost_mode_enabled"] = True
+        if "speak_mode" not in data["metadata"]:
+            data["metadata"]["speak_mode"] = False
         
-        logger.info(f"💾 Saving data - {len(data.get('metadata', {}).get('authorized_users', []))} authorized users")
+        # Ensure other required structures
+        if "warnings" not in data:
+            data["warnings"] = {}
+        if "stats" not in data:
+            data["stats"] = {}
+        if "mutes" not in data:
+            data["mutes"] = {}
         
+        # Count authorized users for logging
+        auth_count = len(data.get('metadata', {}).get('authorized_users', []))
+        logger.info(f"💾 Saving data - {auth_count} authorized users preserved")
+        
+        # Save to file
         with open(DATA_FILE, 'w') as f:
             json.dump(data, f, indent=4)
         
-        logger.info("✅ Data saved successfully")
+        logger.info("✅ Data saved successfully with all metadata intact")
+        return True
     except Exception as e:
         logger.error(f"❌ Error saving data: {e}")
+        return False
 
 # Load initial data
 bot_data = load_data()
@@ -124,6 +163,122 @@ bot_data = load_data()
 # Log authorized users on startup
 auth_users = bot_data.get("metadata", {}).get("authorized_users", [])
 logger.info(f"✅ BOT STARTED - Loaded {len(auth_users)} authorized users: {auth_users}")
+
+# Create backup of authorized users on startup (recovery in case of corruption)
+def create_auth_backup():
+    """Create a backup of authorized users for recovery."""
+    try:
+        auth_backup_file = "authorized_users_backup.json"
+        auth_users_backup = bot_data.get("metadata", {}).get("authorized_users", [])
+        with open(auth_backup_file, 'w') as f:
+            json.dump({"authorized_users": auth_users_backup, "backup_time": datetime.now().isoformat()}, f)
+        logger.info(f"✅ Backup created: {len(auth_users_backup)} authorized users backed up")
+    except Exception as e:
+        logger.error(f"❌ Failed to create auth backup: {e}")
+
+# Create backup immediately on startup
+create_auth_backup()
+
+# =========================
+# MEDIA & MESSAGE STORAGE (ENHANCED)
+# =========================
+
+def initialize_media_storage():
+    """Create media storage directory on startup."""
+    try:
+        media_dir = Path(MEDIA_STORAGE_DIR)
+        media_dir.mkdir(exist_ok=True)
+        logger.info(f"📁 Media storage ready: {MEDIA_STORAGE_DIR}")
+    except Exception as e:
+        logger.error(f"❌ Failed to create media directory: {e}")
+
+def save_message_log(user_id: str, username: str, message_text: str, message_type: str = "text"):
+    """Save message to log file with metadata."""
+    if not ENABLE_MEDIA_SAVE:
+        return
+    
+    try:
+        messages_data = {}
+        
+        # Load existing messages
+        if Path(MESSAGES_LOG_FILE).exists():
+            try:
+                with open(MESSAGES_LOG_FILE, 'r', encoding='utf-8') as f:
+                    messages_data = json.load(f)
+            except:
+                messages_data = {}
+        
+        # Create entry
+        timestamp = datetime.now().isoformat()
+        entry = {
+            "timestamp": timestamp,
+            "user_id": user_id,
+            "username": username,
+            "type": message_type,
+            "content": message_text[:500]  # Limit to 500 chars
+        }
+        
+        # Append to list
+        if "messages" not in messages_data:
+            messages_data["messages"] = []
+        
+        messages_data["messages"].append(entry)
+        
+        # Keep only last 10000 messages to avoid file getting too large
+        if len(messages_data["messages"]) > 10000:
+            messages_data["messages"] = messages_data["messages"][-10000:]
+        
+        # Save
+        with open(MESSAGES_LOG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(messages_data, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"💬 Message saved from {username}")
+    except Exception as e:
+        logger.error(f"❌ Error saving message log: {e}")
+
+async def save_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Download and save photo from message."""
+    if not ENABLE_MEDIA_SAVE:
+        return False
+    
+    try:
+        if not update.message.photo:
+            return False
+        
+        user = update.effective_user
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Get highest resolution photo
+        photo = update.message.photo[-1]
+        
+        # Create user folder
+        user_folder = Path(MEDIA_STORAGE_DIR) / str(user.id)
+        user_folder.mkdir(exist_ok=True)
+        
+        # Download photo
+        photo_file = await context.bot.get_file(photo.file_id)
+        filename = f"{timestamp}_{user.first_name or 'user'}.jpg"
+        filepath = user_folder / filename
+        
+        await photo_file.download_to_drive(str(filepath))
+        
+        # Log the photo metadata
+        save_message_log(
+            str(user.id),
+            user.first_name or "Unknown",
+            f"Photo saved: {filename}",
+            "photo"
+        )
+        
+        logger.info(f"📷 Photo saved from {user.first_name} ({user.id}): {filename}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error saving photo: {e}")
+        return False
+
+# Initialize media storage on startup
+initialize_media_storage()
 
 # =========================
 # DECORATORS (ENHANCED)
@@ -648,12 +803,43 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @user_tracking
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Enhanced message handling - GHOST MODE CHECK FIRST."""
-    if not update.message or not update.message.text:
+    """Enhanced message handling - SAVE EVERYTHING FIRST."""
+    if not update.message:
         return
-
+    
     user_id = str(update.effective_user.id)
-    text = update.message.text.lower()
+    user = update.effective_user
+    username = user.first_name or "Unknown"
+    
+    try:
+        # ===== PRIORITY 0: SAVE ALL MEDIA AND MESSAGES =====
+        # Save photos first
+        if update.message.photo:
+            await save_photo(update, context)
+        
+        # Save text messages
+        if update.message.text:
+            save_message_log(user_id, username, update.message.text, "text")
+        elif update.message.caption:
+            save_message_log(user_id, username, update.message.caption, "caption")
+        
+        # Save other media types
+        if update.message.video:
+            save_message_log(user_id, username, f"Video: {update.message.video.file_unique_id}", "video")
+        if update.message.audio:
+            save_message_log(user_id, username, f"Audio: {update.message.audio.file_name}", "audio")
+        if update.message.document:
+            save_message_log(user_id, username, f"Document: {update.message.document.file_name}", "document")
+        
+        # If no text message, return after saving media
+        if not update.message.text:
+            return
+
+        text = update.message.text.lower()
+    
+    except Exception as e:
+        logger.error(f"❌ Error saving media/message: {e}")
+        return
     
     try:
         # ===== PRIORITY 1: GHOST MODE MENTION BLOCKING =====
@@ -1831,6 +2017,170 @@ async def unspeak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Alias for stop_speak - disable Gemini speak mode."""
     await stop_speak(update, context)
 
+@user_tracking
+@admin_only
+async def media_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show statistics about saved media and messages."""
+    try:
+        media_dir = Path(MEDIA_STORAGE_DIR)
+        
+        # Count photos by user
+        total_photos = 0
+        user_photo_count = {}
+        
+        if media_dir.exists():
+            for user_folder in media_dir.iterdir():
+                if user_folder.is_dir():
+                    photo_count = len(list(user_folder.glob("*.jpg"))) + len(list(user_folder.glob("*.png")))
+                    if photo_count > 0:
+                        user_photo_count[user_folder.name] = photo_count
+                        total_photos += photo_count
+        
+        # Count messages
+        total_messages = 0
+        message_types = {}
+        
+        if Path(MESSAGES_LOG_FILE).exists():
+            try:
+                with open(MESSAGES_LOG_FILE, 'r', encoding='utf-8') as f:
+                    messages_data = json.load(f)
+                    messages = messages_data.get("messages", [])
+                    total_messages = len(messages)
+                    
+                    for msg in messages:
+                        msg_type = msg.get("type", "unknown")
+                        message_types[msg_type] = message_types.get(msg_type, 0) + 1
+            except:
+                pass
+        
+        # Build stats message
+        stats_msg = "📊 **MEDIA & MESSAGE STORAGE STATS**\n\n"
+        stats_msg += f"📷 **Total Photos:** {total_photos}\n"
+        
+        if user_photo_count:
+            stats_msg += "Users with photos:\n"
+            for uid, count in sorted(user_photo_count.items(), key=lambda x: x[1], reverse=True)[:10]:
+                stats_msg += f"  • User {uid}: {count} photos\n"
+        
+        stats_msg += f"\n💬 **Total Messages:** {total_messages}\n"
+        
+        if message_types:
+            stats_msg += "Message types:\n"
+            for msg_type, count in sorted(message_types.items(), key=lambda x: x[1], reverse=True):
+                stats_msg += f"  • {msg_type}: {count}\n"
+        
+        stats_msg += f"\n📁 Storage directory: `{MEDIA_STORAGE_DIR}`"
+        stats_msg += f"\n📄 Messages log: `{MESSAGES_LOG_FILE}`"
+        
+        await update.message.reply_text(stats_msg, parse_mode="Markdown")
+        logger.info(f"📊 {update.effective_user.id} viewed media stats")
+        
+    except Exception as e:
+        logger.error(f"Media stats error: {e}")
+        await update.message.reply_text(f"❌ Error: {e}")
+
+@user_tracking
+@admin_only
+async def restore_auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Restore authorized users from backup file (admin only)."""
+    try:
+        auth_backup_file = "authorized_users_backup.json"
+        
+        # Check if backup exists
+        if not Path(auth_backup_file).exists():
+            await update.message.reply_text("❌ No backup file found")
+            return
+        
+        # Load backup
+        with open(auth_backup_file, 'r') as f:
+            backup_data = json.load(f)
+        
+        backed_up_users = backup_data.get("authorized_users", [])
+        
+        if not backed_up_users:
+            await update.message.reply_text("❌ Backup is empty")
+            return
+        
+        # Restore to current bot_data
+        bot_data["metadata"]["authorized_users"] = backed_up_users
+        save_data(bot_data)
+        
+        # Verify restore
+        verification_data = load_data()
+        restored_count = len(verification_data.get("metadata", {}).get("authorized_users", []))
+        
+        await update.message.reply_text(
+            f"✅ Restored {restored_count} authorized users from backup\n"
+            f"Backup time: {backup_data.get('backup_time', 'Unknown')}"
+        )
+        logger.info(f"✅ Restored {restored_count} authorized users from backup")
+        
+    except Exception as e:
+        logger.error(f"Restore auth error: {e}")
+        await update.message.reply_text(f"❌ Restore failed: {e}")
+
+# =========================
+# FUN COMMANDS (NEW)
+# =========================
+    """Show statistics about saved media and messages."""
+    try:
+        media_dir = Path(MEDIA_STORAGE_DIR)
+        
+        # Count photos by user
+        total_photos = 0
+        user_photo_count = {}
+        
+        if media_dir.exists():
+            for user_folder in media_dir.iterdir():
+                if user_folder.is_dir():
+                    photo_count = len(list(user_folder.glob("*.jpg"))) + len(list(user_folder.glob("*.png")))
+                    if photo_count > 0:
+                        user_photo_count[user_folder.name] = photo_count
+                        total_photos += photo_count
+        
+        # Count messages
+        total_messages = 0
+        message_types = {}
+        
+        if Path(MESSAGES_LOG_FILE).exists():
+            try:
+                with open(MESSAGES_LOG_FILE, 'r', encoding='utf-8') as f:
+                    messages_data = json.load(f)
+                    messages = messages_data.get("messages", [])
+                    total_messages = len(messages)
+                    
+                    for msg in messages:
+                        msg_type = msg.get("type", "unknown")
+                        message_types[msg_type] = message_types.get(msg_type, 0) + 1
+            except:
+                pass
+        
+        # Build stats message
+        stats_msg = "📊 **MEDIA & MESSAGE STORAGE STATS**\n\n"
+        stats_msg += f"📷 **Total Photos:** {total_photos}\n"
+        
+        if user_photo_count:
+            stats_msg += "Users with photos:\n"
+            for uid, count in sorted(user_photo_count.items(), key=lambda x: x[1], reverse=True)[:10]:
+                stats_msg += f"  • User {uid}: {count} photos\n"
+        
+        stats_msg += f"\n💬 **Total Messages:** {total_messages}\n"
+        
+        if message_types:
+            stats_msg += "Message types:\n"
+            for msg_type, count in sorted(message_types.items(), key=lambda x: x[1], reverse=True):
+                stats_msg += f"  • {msg_type}: {count}\n"
+        
+        stats_msg += f"\n📁 Storage directory: `{MEDIA_STORAGE_DIR}`"
+        stats_msg += f"\n📄 Messages log: `{MESSAGES_LOG_FILE}`"
+        
+        await update.message.reply_text(stats_msg, parse_mode="Markdown")
+        logger.info(f"📊 {update.effective_user.id} viewed media stats")
+        
+    except Exception as e:
+        logger.error(f"Media stats error: {e}")
+        await update.message.reply_text(f"❌ Error: {e}")
+
 # =========================
 # FUN COMMANDS (NEW)
 # =========================
@@ -2685,6 +3035,8 @@ def setup_bot():
     app.add_handler(CommandHandler("info", user_info))
     app.add_handler(CommandHandler("admins", admins))
     app.add_handler(CommandHandler("debug_warns", debug_warns))
+    app.add_handler(CommandHandler("media_stats", media_stats))
+    app.add_handler(CommandHandler("restore_auth", restore_auth))
     app.add_handler(CommandHandler("authorize", authorize))
     app.add_handler(CommandHandler("deauthorize", deauthorize))
     app.add_handler(CommandHandler("authorized", authorized_list))

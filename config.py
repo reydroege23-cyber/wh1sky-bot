@@ -109,6 +109,14 @@ DATA_FILE = "bot_data.json"
 LOG_FILE = "bot.log"
 
 # =========================
+# MEDIA STORAGE
+# =========================
+
+MEDIA_STORAGE_DIR = "saved_media"  # Directory to store photos and messages
+MESSAGES_LOG_FILE = "saved_messages.json"  # Log for all messages sent
+ENABLE_MEDIA_SAVE = True  # Enable saving photos and messages
+
+# =========================
 # LOGGING
 # =========================
 
