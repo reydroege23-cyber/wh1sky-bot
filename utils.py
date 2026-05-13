@@ -3,19 +3,20 @@ Utility functions for Whisky_bot
 AI integration and common helpers
 """
 
-import google.generativeai as genai
+from google import genai
 import logging
 import asyncio
+import os
 from config import GEMINI_API_KEY, AI_MODEL, AI_TIMEOUT, MAX_RESPONSE_LENGTH
 
 logger = logging.getLogger(__name__)
 
-# Configure AI
-genai.configure(api_key=GEMINI_API_KEY)
+# Configure AI client
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 async def ask_gemini(prompt: str) -> str:
     """
-    Send a prompt to Gemini AI and get a response.
+    Send a prompt to Gemini AI and get a response using google-genai SDK.
     
     Args:
         prompt: The user's question or prompt
@@ -24,9 +25,14 @@ async def ask_gemini(prompt: str) -> str:
         AI response text (truncated to Telegram limit)
     """
     try:
-        model = genai.GenerativeModel(AI_MODEL)
+        # Use new google-genai API
         response = await asyncio.wait_for(
-            asyncio.to_thread(model.generate_content, prompt),
+            asyncio.to_thread(
+                lambda: ai_client.models.generate_content(
+                    model=AI_MODEL,
+                    contents=prompt
+                )
+            ),
             timeout=AI_TIMEOUT
         )
         

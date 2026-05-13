@@ -12,7 +12,7 @@ from telegram.ext import (
     filters
 )
 
-import google.generativeai as genai
+from google import genai
 from datetime import timedelta, datetime
 import logging
 import json
@@ -23,6 +23,7 @@ import asyncio
 import random
 import base64
 import traceback
+import os
 
 # =========================
 # LOGGING SETUP (ENHANCED)
@@ -47,9 +48,9 @@ try:
     logger.info(f"📝 API Key present: {bool(GEMINI_API_KEY)}")
     logger.info(f"🤖 Model: {AI_MODEL}")
     
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(AI_MODEL)
-    logger.info("✅ Gemini configured successfully with gemini-1.5-flash-latest")
+    # Use new google-genai SDK
+    ai_client = genai.Client(api_key=GEMINI_API_KEY)
+    logger.info("✅ Gemini configured successfully with google-genai SDK")
     
     # Mark as available - test will happen on first /ai or /test command
     AI_AVAILABLE = True
@@ -60,6 +61,7 @@ except Exception as e:
     import traceback
     logger.warning(traceback.format_exc())
     AI_AVAILABLE = False
+    ai_client = None
 
 # =========================
 # DATA STORAGE (ENHANCED)
@@ -265,14 +267,19 @@ def rate_limit(cooldown_type: str = "command", cooldown_seconds: int = None):
 # =========================
 
 async def ask_ai(message: str) -> str:
-    """Get response from Gemini AI with error handling."""
-    if not AI_AVAILABLE:
+    """Get response from Gemini AI with new google-genai SDK."""
+    if not AI_AVAILABLE or ai_client is None:
         return "⚠️ AI service is offline. Contact admin."
     
     try:
-        # Run the synchronous API call in a thread pool to avoid blocking
+        # Use new google-genai API via asyncio thread
         response = await asyncio.wait_for(
-            asyncio.to_thread(model.generate_content, message),
+            asyncio.to_thread(
+                lambda: ai_client.models.generate_content(
+                    model=AI_MODEL,
+                    contents=message
+                )
+            ),
             timeout=AI_TIMEOUT
         )
         
