@@ -1927,58 +1927,6 @@ async def dare(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Pretend to be a news anchor for 1 minute.",
         "Send a funny meme to your group chat.",
         "Post a selfie making a weird face.",
-        "Send the last photo in your gallery.",
-        "Type with your eyes closed for 1 minute.",
-        "Change your profile picture for 10 minutes.",
-        "Say something nice about everyone here.",
-        "Send a random emoji 20 times.",
-        "Talk like a robot for 5 minutes.",
-        "Send a voice message singing.",
-        "Use only emojis for 10 minutes.",
-        "Reveal your screen time.",
-        "Send your funniest meme.",
-        "Pretend to be a cat for 1 minute.",
-        "Reply only with 'yes' for 5 minutes.",
-        "Tell a joke right now.",
-        "Send the oldest selfie on your phone.",
-        "Put 'I love homework' in your bio for 5 min.",
-        "Send a random message to a friend.",
-        "Speak in CAPS ONLY for 5 minutes.",
-        "Act like the group owner.",
-        "Describe yourself in 3 cursed words.",
-        "Send your last copied text.",
-        "Try to make everyone laugh.",
-        "Send a dramatic goodbye message.",
-        "Say the alphabet backwards.",
-        "Write a poem about potatoes.",
-        "Change your name to 'NPC' for 10 min.",
-        "Say your crush's initials.",
-        "Send a sticker that describes your life.",
-        "Roast yourself.",
-        "Use voice messages only for 5 minutes.",
-        "Reveal your most-used app."
-        "Do your best evil laugh and send a voice message."
-        "Pretend to be a fortune teller and give a prediction to someone in the chat."
-        "Send a voice message of you doing your best impression of a celebrity."
-        "Try to juggle 3 random objects and send a video of it."
-        "Do your best runway walk and send a video of it."
-        "Send a voice message of you doing your best animal impression."
-        "Try to balance a book on your head and send a video of it."
-        "Send a voice message of you doing your best robot dance."
-        "Pretend to be a news reporter and give a breaking news report about something random in the chat."
-        "Send a voice message of you doing your best impression of a character from a popular TV show or movie."
-        "Try to do a handstand and send a video of it."
-        "Send a voice message of you doing your best impression of a famous singer."
-        "Pretend to be a motivational speaker and give an inspiring speech about something random in the chat, then send a voice message of it."
-        "Try to do a cartwheel and send a video of it."
-        "Send a voice message of you doing your best impression of a famous comedian."
-        "Pretend to be a weather forecaster and give a forecast for the next week in your area, then send a voice message of it."
-        "Try to do a split and send a video of it."
-        "Send a voice message of you doing your best impression of a famous actor."
-        "Pretend to be a game show host and give a quiz about something random in the chat, then send a voice message of it."
-        "Try to do a backflip and send a video of it."
-        "Send a voice message of you doing your best impression of a famous athlete."
-        "Pretend to be a chef and give a cooking demonstration of a simple recipe, then send a voice message of it."
         "Try to do a somersault and send a video of it."
         "Send a voice message of you doing your best impression of a famous politician."
         "Pretend to be a tour guide and give a tour of your city or neighborhood, then send a voice message of it."
