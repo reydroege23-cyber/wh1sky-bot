@@ -1873,15 +1873,15 @@ async def truth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "What would you never admit to your parents?",
         "What's your guilty pleasure?",
         "Have you ever lied to your best friend?",
-        "Have you ever been caught fucking yourself in the shower?"
-        "What's the weirdest thing you've done for a dare?"
-        "What is your ass size in cm?"
-        "What is  your Dick size in cm?"
-        "Do you Suck someone dick?"
-        "do you like to suck dick?"
-        "Are u gay?"
-        "Are u straight?"
-        "Are u Femboy"
+        "Have you ever been caught fucking yourself in the shower?",
+        "What's the weirdest thing you've done for a dare?",
+        "What is your ass size in cm?",
+        "What is your Dick size in cm?",
+        "Do you Suck someone dick?",
+        "Do you like to suck dick?",
+        "Are u gay?",
+        "Are u straight?",
+        "Are u Femboy?",
         "Do u love Dick?"
     ]
     try:
