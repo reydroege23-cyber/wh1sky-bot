@@ -171,15 +171,33 @@ class BlackjackGame:
         else:
             return 'PUSH'
     
+    def is_soft_hand(self, hand: List[str]) -> bool:
+        """Check if hand is 'soft' (contains an ace counted as 11)."""
+        if not any(card.startswith('A') for card in hand):
+            return False
+        
+        # Count value without aces
+        value = sum(self.CARD_VALUES.get(card[:-1], 10) 
+                   for card in hand if not card.startswith('A'))
+        # If value + 11 (ace as 11) <= 21, it's soft
+        return value + 11 <= 21
+    
     def dealer_play(self) -> int:
-        """Dealer must hit until 17+. Returns final dealer value."""
+        """
+        Dealer AI: Casino standard behavior.
+        - Dealer hits until 17+
+        - Stands on hard 17+
+        - Stands on soft 17 (standard house rule)
+        Returns: Final dealer hand value
+        """
         while True:
             dealer_value, _ = self.calculate_hand_value(self.dealer_hand)
             
+            # Dealer stands on 17 or higher (casino standard)
             if dealer_value >= 17:
                 return dealer_value
             
-            # Dealer hits
+            # Dealer hits on 16 or lower
             self.hit(is_player=False)
     
     def format_card(self, card: str) -> str:
@@ -195,6 +213,17 @@ class BlackjackGame:
             cards = [self.format_card(card) for card in hand]
         
         return " ".join(cards)
+    
+    def is_soft_hand(self, hand: List[str]) -> bool:
+        """Check if hand is 'soft' (contains an ace counted as 11)."""
+        if not any(card.startswith('A') for card in hand):
+            return False
+        
+        # Count value without aces
+        value = sum(self.CARD_VALUES.get(card[:-1], 10) 
+                   for card in hand if not card.startswith('A'))
+        # If value + 11 (ace as 11) <= 21, it's soft
+        return value + 11 <= 21
 
 
 class BlackjackTracker:
@@ -364,39 +393,50 @@ def set_cooldown(user_id: int):
 # FLAVOR MESSAGES
 # ==========================================
 
+# 🎭 CASINO AI DEALER PERSONALITY - Win Messages
 WIN_MESSAGES = [
-    "🔥 INSANE WIN!",
-    "🍀 Lucky pull!",
-    "👑 BLACKJACK!",
-    "💎 Big money!",
-    "🎉 YES YES YES!",
-    "🏆 You're on fire!",
-    "✨ Sweet victory!",
-    "💰 Money maker!",
+    "🎩 Impressive hand, player.",
+    "💰 The house respects that win.",
+    "🔥 Sharp play.",
+    "💎 You've got some skill.",
+    "🍀 Lady luck smiles on you.",
+    "🏆 Winner, winner, chicken dinner!",
+    "✨ That's how it's done.",
+    "🎯 Perfect execution.",
 ]
 
+# 🎭 CASINO AI DEALER PERSONALITY - Loss Messages
 LOSE_MESSAGES = [
-    "💀 Dealer destroyed you.",
-    "😢 Tough luck.",
-    "🔥 Ouch! Better luck next time.",
-    "😭 That hurts.",
-    "☠️ Brutal loss.",
-    "💔 Game over.",
-    "🎭 Not your day.",
+    "🃏 House takes this one.",
+    "😢 Better luck next round.",
+    "🎲 Not your day, friend.",
+    "💀 The dealer wins again.",
+    "☠️ Tough hand. Play again?",
+    "🤖 Dealer's got the edge.",
+    "📉 That's the game.",
+    "🎭 Almost had it.",
 ]
 
+# 🎭 CASINO AI DEALER PERSONALITY - Push Messages
 PUSH_MESSAGES = [
-    "🤝 It's a tie!",
-    "⚖️ Split the pot.",
-    "🔄 One more time!",
-    "🤷 No winner today.",
+    "🤝 Stalemate—fair game.",
+    "⚖️ A tie. Respect.",
+    "🎯 Dead even. Push.",
+    "🤝 Same hand. Same value.",
+    "⚖️ The dealer and you: matched.",
+    "🎭 The gods have spoken—it's a tie.",
+    "⚖️ House and player: equal strength.",
+    "🎲 The cards say: stalemate.",
 ]
 
 DEALER_MESSAGES = [
-    "🤖 Dealer shows...",
-    "🎰 House reveals...",
-    "🃏 Let's see...",
-    "🤐 Opening the cards...",
+    "🤖 The dealer reveals their hand...",
+    "🃏 *taps table* Let's see...",
+    "🎭 *flips card* Time for the dealer...",
+    "🤔 *studies the board* I'm going to...",
+    "💭 The dealer must act now...",
+    "🎲 Dealer's turn. The cards decide...",
+    "🤖 *adjusts glasses* Here we go...",
 ]
 
 
