@@ -120,11 +120,8 @@ bot_data = load_data()
 economy = Economy(bot_data)
 gambling_games = GamblingGames()
 
-# Game state (no-lag roulette: single callback = instant result)
-ACTIVE_ROULETTE = {}  # {user_id: {'bet': int, 'choice': str}}
-
-logger.info("✅ Economy system initialized")
-logger.info(f"💰 Loaded balances for {len(bot_data.get('economy', {}))} users")
+logger.info("✅ Economy system initialized (SQLite persistence)")
+logger.info(f"💰 Loaded {economy.get_user_count()} users from database")
 
 # =========================
 # DECORATORS (ENHANCED)
@@ -1867,11 +1864,13 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Play game
         result = gambling_games.coinflip(bet_amount)
         
-        # Update balance
+        # Update balance and track win/loss (persistent)
         if result['won']:
             economy.add_coins(user_id, result['coins_won'], "Coinflip win")
+            economy.record_win(user_id, bet_amount, result['coins_won'], "Coinflip")
         else:
             economy.remove_coins(user_id, bet_amount, "Coinflip loss")
+            economy.record_loss(user_id, bet_amount, "Coinflip")
         
         save_data(bot_data)
         new_balance = economy.get_balance(user_id)
@@ -1931,11 +1930,13 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Play game
         result = gambling_games.slots(bet_amount)
         
-        # Update balance
+        # Update balance and track win/loss (persistent)
         if result['won']:
             economy.add_coins(user_id, result['coins_won'], "Slots win")
+            economy.record_win(user_id, bet_amount, result['coins_won'], "Slots")
         else:
             economy.remove_coins(user_id, bet_amount, "Slots loss")
+            economy.record_loss(user_id, bet_amount, "Slots")
         
         save_data(bot_data)
         new_balance = economy.get_balance(user_id)
@@ -1989,11 +1990,13 @@ async def dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Play game
         result = gambling_games.dice(bet_amount)
         
-        # Update balance
+        # Update balance and track win/loss (persistent)
         if result['coins_won'] > 0:
             economy.add_coins(user_id, result['coins_won'], "Dice win")
+            economy.record_win(user_id, bet_amount, result['coins_won'], "Dice")
         elif result['coins_won'] < 0:
             economy.remove_coins(user_id, bet_amount, "Dice loss")
+            economy.record_loss(user_id, bet_amount, "Dice")
         
         save_data(bot_data)
         new_balance = economy.get_balance(user_id)
@@ -2036,7 +2039,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @user_tracking
 @rate_limit(cooldown_type="command", cooldown_seconds=1)
 async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🎡 European Roulette - Spin and win!
+    """🎡 European Roulette - Instant spin and result!
     
     Usage: /roulette <bet> <choice>
     Choices: red, black, green, 0-36
@@ -2093,108 +2096,34 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Deduct bet
         economy.remove_coins(user_id, bet_amount, "Roulette bet")
         
-        # Store session (minimal state)
-        ACTIVE_ROULETTE[user_id] = {
-            'bet': bet_amount,
-            'choice': choice,
-            'balance_before': current_balance
-        }
+        # 🎡 INSTANT SPIN - No callback needed (auto-resolve)
+        result = gambling_games.roulette(bet_amount, choice)
         
-        # Show betting board with SPIN button
-        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-        
-        spin_button = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🎲 SPIN!", callback_data=f"roulette_spin:{user_id}")
-        ]])
-        
-        board_msg = (
-            f"🎡 **ROULETTE READY**\n\n"
-            f"💰 **Bet:** {bet_amount} coins\n"
-            f"🎲 **Choice:** {choice.upper()}\n"
-            f"📊 **Balance:** {current_balance}\n\n"
-            f"Press SPIN to resolve!"
-        )
-        
-        msg = await update.message.reply_text(board_msg, parse_mode="Markdown", reply_markup=spin_button)
-        save_data(bot_data)
-        logger.info(f"🎡 {user_id} placed roulette bet: {bet_amount} on {choice}")
-        
-    except Exception as e:
-        logger.error(f"❌ Roulette start error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        await update.message.reply_text(error_msg("Game error"))
-
-# =========================
-# ROULETTE CALLBACK (INSTANT RESOLUTION)
-# =========================
-
-async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🎡 Roulette SPIN - Instant one-shot resolution (no lag)"""
-    query = update.callback_query
-    
-    # STEP 1: Answer immediately (prevents loading freeze)
-    await query.answer()
-    
-    try:
-        # Parse callback data
-        data_parts = query.data.split(":")
-        if len(data_parts) != 2 or data_parts[0] != "roulette_spin":
-            return
-        
-        user_id_in_data = int(data_parts[1])
-        current_user_id = query.from_user.id
-        
-        # Verify user matches
-        if current_user_id != user_id_in_data:
-            return
-        
-        # Check game exists
-        if current_user_id not in ACTIVE_ROULETTE:
-            try:
-                await query.answer("❌ Game expired. Start a new one.", show_alert=True)
-            except:
-                pass
-            return
-        
-        # Get game data
-        game_session = ACTIVE_ROULETTE[current_user_id]
-        bet = game_session['bet']
-        choice = game_session['choice']
-        balance_before = game_session['balance_before']
-        
-        # SPIN THE WHEEL - Single call, instant result
-        result = gambling_games.roulette(bet, choice)
-        
-        # STEP 2: Update balance ONLY ONCE (no-lag critical)
+        # Update balance and track win/loss (persistent)
         if result['won']:
-            economy.add_coins(current_user_id, result['coins_won'], f"Roulette win - {choice}")
+            economy.add_coins(user_id, result['coins_won'], f"Roulette win - {choice}")
+            economy.record_win(user_id, bet_amount, result['coins_won'], "Roulette")
         else:
-            # Coins already deducted in start command
-            pass
+            economy.record_loss(user_id, bet_amount, "Roulette")
         
         save_data(bot_data)
-        balance_after = economy.get_balance(current_user_id)
+        balance_after = economy.get_balance(user_id)
         
-        # STEP 3: Show result with single message edit (no spam)
+        # Show result immediately
         result_text = (
             f"{result['emoji']} **ROULETTE RESULT**\n\n"
             f"{result['result']}\n\n"
             f"━━━━━━━━━━━━━━━━━\n"
-            f"💰 **Balance:** {balance_before} → {balance_after}\n"
+            f"💰 **Balance:** {current_balance} → {balance_after}\n"
             f"━━━━━━━━━━━━━━━━━"
         )
         
-        await query.edit_message_text(result_text, parse_mode="Markdown")
-        
-        # Cleanup
-        del ACTIVE_ROULETTE[current_user_id]
-        logger.info(f"🎡 {current_user_id} spun roulette: {choice}, Won: {result['won']}, Number: {result['number']}")
+        await update.message.reply_text(result_text, parse_mode="Markdown")
+        logger.info(f"🎡 {user_id} spun roulette: {choice}, Won: {result['won']}, Number: {result['number']}")
         
     except Exception as e:
-        logger.error(f"❌ Roulette callback error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        try:
-            await query.answer("❌ Error occurred", show_alert=True)
-        except:
-            pass
+        logger.error(f"❌ Roulette error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+        await update.message.reply_text(error_msg("Game error"))
 
 # Admin Economy Commands
 
@@ -3015,10 +2944,6 @@ def setup_bot():
     app.add_handler(CommandHandler("addcoins", addcoins_cmd))
     app.add_handler(CommandHandler("removecoins", removecoins_cmd))
     app.add_handler(CommandHandler("setcoins", setcoins_cmd))
-    
-    # Roulette callback (SPIN button)
-    from telegram.ext import CallbackQueryHandler
-    app.add_handler(CallbackQueryHandler(roulette_callback, pattern="^roulette_spin:"))
     
     # Messages (must be last)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

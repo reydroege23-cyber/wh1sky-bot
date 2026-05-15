@@ -1,14 +1,14 @@
 """
-💰 ECONOMY MODULE - Virtual Coin System
+💰 ECONOMY MODULE - Persistent Virtual Coin System
 Manages user balances, transactions, and leaderboards
 
-⚠️ VIRTUAL CURRENCY ONLY - Entertainment purposes ONLY
+Uses SQLite database for production-ready persistence:
+✔ Survives bot restarts
+✔ Survives crashes
+✔ Survives redeployments
+✔ Real-time leaderboard
 
-SIMPLE STRUCTURE:
-- get_balance() → Get coins
-- add_coins() → Give coins  
-- remove_coins() → Take coins
-- claim_daily() → Daily reward
+⚠️ VIRTUAL CURRENCY ONLY - Entertainment purposes ONLY
 """
 
 import logging
@@ -20,200 +20,246 @@ from config import (
     DAILY_REWARD,
     DAILY_COOLDOWN,
 )
+from database import EconomyDatabase
 
 logger = logging.getLogger(__name__)
 
 
 class Economy:
     """
-    Simple, beginner-friendly economy system.
+    Production-ready economy system using SQLite persistence.
     
     What it does:
-    1. Tracks coin balance for each user
-    2. Allows adding/removing coins
+    1. Tracks coin balance for each user (in database, not RAM)
+    2. Allows adding/removing coins (atomic operations)
     3. Handles daily rewards with cooldown
-    4. Shows top users (leaderboard)
+    4. Shows top users (real-time leaderboard)
+    5. SURVIVES bot restarts, crashes, and redeployments
     """
     
-    def __init__(self, bot_data: dict):
-        """Initialize with bot_data storage."""
-        self.bot_data = bot_data
-        self._ensure_structure()
+    def __init__(self, bot_data: dict = None):
+        """
+        Initialize with database connection.
+        bot_data is kept for legacy support (warnings, stats, etc)
+        but economy data uses SQLite.
+        """
+        self.bot_data = bot_data or {}
+        self.db = EconomyDatabase("economy.db")  # Persistent database
+        self._ensure_legacy_structure()
     
-    def _ensure_structure(self):
-        """Create data structures if they don't exist."""
-        if "economy" not in self.bot_data:
-            self.bot_data["economy"] = {}
-        if "daily_claims" not in self.bot_data:
-            self.bot_data["daily_claims"] = {}
-        if "economy_log" not in self.bot_data:
-            self.bot_data["economy_log"] = []
+    def _ensure_legacy_structure(self):
+        """Initialize legacy bot_data structure (warnings, stats, etc)."""
+        # Daily claims are now persisted in database, not in-memory JSON
+        pass
     
     # ========================================
-    # BALANCE OPERATIONS
+    # BALANCE OPERATIONS (DATABASE-BACKED)
     # ========================================
     
     def get_balance(self, user_id: int) -> int:
         """
-        Get user's coin balance.
+        Get user's coin balance from database.
         
         What it does:
-        - Returns coins if user exists
-        - Creates new user with STARTING_BALANCE if doesn't exist
+        - Reads from persistent SQLite database
+        - Auto-creates user if doesn't exist
+        - Returns balance (never loses data)
         """
-        user_id_str = str(user_id)
-        
-        # Create new user if needed
-        if user_id_str not in self.bot_data["economy"]:
-            self.bot_data["economy"][user_id_str] = STARTING_BALANCE
-            logger.info(f"👤 New user {user_id}: {STARTING_BALANCE} coins")
-        
-        return self.bot_data["economy"][user_id_str]
+        return self.db.get_balance(user_id, STARTING_BALANCE)
     
     def add_coins(self, user_id: int, amount: int, reason: str = "") -> bool:
         """
-        Add coins to user.
+        Add coins to user (atomic operation).
+        
+        Args:
+            user_id: User's Telegram ID
+            amount: Coins to add
+            reason: Log reason (e.g., "Roulette win", "Daily reward")
         
         Returns: True if successful
         """
-        user_id_str = str(user_id)
-        
-        if amount < 0:
-            logger.error(f"❌ Cannot add negative coins")
+        if amount <= 0:
+            logger.warning(f"⚠️ Attempted to add {amount} coins to {user_id}")
             return False
         
-        # Get current balance (creates user if new)
-        balance = self.get_balance(user_id)
-        new_balance = balance + amount
-        
-        # Update balance
-        self.bot_data["economy"][user_id_str] = new_balance
-        self._log(user_id, amount, new_balance, reason or "Added coins")
-        
-        return True
+        success = self.db.add_balance(user_id, amount)
+        if success:
+            logger.info(f"✅ Added {amount} coins to {user_id}: {reason}")
+        else:
+            logger.error(f"❌ Failed to add {amount} coins to {user_id}")
+        return success
     
-    def remove_coins(self, user_id: int, amount: int, reason: str = "") -> tuple[bool, str]:
+    def remove_coins(self, user_id: int, amount: int, reason: str = "") -> bool:
         """
-        Remove coins from user.
+        Remove coins from user (atomic operation).
         
-        Returns: (success, error_message)
+        Args:
+            user_id: User's Telegram ID
+            amount: Coins to remove
+            reason: Log reason (e.g., "Roulette bet", "Coinflip loss")
+        
+        Returns: True if successful
         """
-        user_id_str = str(user_id)
-        
-        if amount < 0:
-            return False, "❌ Invalid amount"
-        
-        balance = self.get_balance(user_id)
-        
-        # Check if user has enough
-        if balance < amount:
-            return False, f"❌ Need {amount}, you have {balance}"
-        
-        new_balance = balance - amount
-        self.bot_data["economy"][user_id_str] = new_balance
-        self._log(user_id, -amount, new_balance, reason or "Removed coins")
-        
-        return True, ""
-    
-    def set_coins(self, user_id: int, amount: int, reason: str = "") -> bool:
-        """Set exact balance (admin only)."""
-        user_id_str = str(user_id)
-        
-        if amount < 0:
+        if amount <= 0:
+            logger.warning(f"⚠️ Attempted to remove {amount} coins from {user_id}")
             return False
         
-        self.bot_data["economy"][user_id_str] = amount
-        self._log(user_id, 0, amount, reason or "Admin set balance")
+        current = self.get_balance(user_id)
+        if current < amount:
+            logger.warning(f"⚠️ Insufficient balance: {user_id} has {current}, tried to remove {amount}")
+            return False
         
-        return True
+        success = self.db.subtract_balance(user_id, amount)
+        if success:
+            logger.info(f"✅ Removed {amount} coins from {user_id}: {reason}")
+        else:
+            logger.error(f"❌ Failed to remove {amount} coins from {user_id}")
+        return success
+    
+    def set_balance(self, user_id: int, balance: int, reason: str = "") -> bool:
+        """
+        Set user's balance to exact amount (admin operation).
+        
+        Returns: True if successful
+        """
+        success = self.db.set_balance(user_id, balance)
+        if success:
+            logger.info(f"✅ Set {user_id} balance to {balance}: {reason}")
+        else:
+            logger.error(f"❌ Failed to set {user_id} balance")
+        return success
     
     # ========================================
-    # VALIDATION
+    # USER TRACKING (PERSISTENT)
     # ========================================
     
-    def validate_bet(self, amount: int, user_balance: int) -> tuple[bool, str]:
+    def track_user(self, user_id: int, username: str = "", first_name: str = "") -> bool:
         """
-        Check if bet is valid.
+        Register user and update info (auto-called on all commands).
         
-        Returns: (is_valid, error_message)
+        Ensures user exists in database with up-to-date info.
         """
-        
-        if amount < MIN_BET:
-            return False, f"❌ Minimum bet: {MIN_BET}"
-        
-        if amount > MAX_BET:
-            return False, f"❌ Maximum bet: {MAX_BET}"
-        
-        if amount > user_balance:
-            return False, f"❌ You only have {user_balance}"
-        
-        return True, ""
+        return self.db.update_user_info(user_id, username, first_name)
     
     # ========================================
-    # DAILY REWARDS
+    # WIN/LOSS TRACKING (PERSISTENT)
     # ========================================
     
-    def claim_daily(self, user_id: int) -> tuple[bool, str, int]:
+    def record_win(self, user_id: int, bet_amount: int, winnings: int, game_name: str = "") -> bool:
         """
-        Claim daily reward.
+        Record a game win (atomic operation).
         
-        Returns: (success, message, coins_gained)
+        Args:
+            user_id: User's Telegram ID
+            bet_amount: Amount wagered
+            winnings: Amount won (coins gained)
+            game_name: Game type (e.g., "Coinflip", "Slots")
+        
+        Returns: True if successful
         """
-        user_id_str = str(user_id)
+        success = self.db.increment_wins(user_id)
+        if success:
+            logger.info(f"🎉 {game_name} WIN for {user_id}: wagered {bet_amount}, won {winnings} coins")
+        return success
+    
+    def record_loss(self, user_id: int, bet_amount: int, game_name: str = "") -> bool:
+        """
+        Record a game loss (atomic operation).
+        
+        Args:
+            user_id: User's Telegram ID
+            bet_amount: Amount wagered
+            game_name: Game type (e.g., "Coinflip", "Slots")
+        
+        Returns: True if successful
+        """
+        success = self.db.increment_losses(user_id)
+        if success:
+            logger.info(f"😢 {game_name} LOSS for {user_id}: lost {bet_amount} coins")
+        return success
+    
+    # ========================================
+    # BETTING VALIDATION
+    # ========================================
+    
+    def validate_bet(self, bet_amount: int, current_balance: int) -> tuple:
+        """
+        Validate bet is within limits.
+        
+        Returns: (is_valid: bool, message: str)
+        """
+        if bet_amount < MIN_BET:
+            return False, f"❌ Minimum bet: **{MIN_BET}** coins"
+        
+        if bet_amount > MAX_BET:
+            return False, f"❌ Maximum bet: **{MAX_BET}** coins"
+        
+        if bet_amount > current_balance:
+            return False, f"❌ Insufficient balance! You have **{current_balance}** coins"
+        
+        return True, "✅ Bet valid"
+    
+    # ========================================
+    # DAILY REWARDS (PERSISTENT COOLDOWN)
+    # ========================================
+    
+    def claim_daily(self, user_id: int) -> dict:
+        """
+        Claim daily reward with persistent cooldown check (stored in database).
+        
+        Returns: {
+            'success': bool,
+            'message': str,
+            'coins_gained': int,
+            'next_claim': timestamp
+        }
+        """
         now = datetime.now()
         
-        # Check if already claimed today
-        if user_id_str in self.bot_data["daily_claims"]:
-            last_claim = datetime.fromisoformat(
-                self.bot_data["daily_claims"][user_id_str]
-            )
-            next_claim = last_claim + timedelta(seconds=DAILY_COOLDOWN)
+        # Get last claim from DATABASE (persistent across restarts)
+        last_claim_time = self.db.get_last_daily_claim(user_id)
+        
+        if last_claim_time:
+            time_since_claim = now - last_claim_time
+            cooldown_duration = timedelta(hours=DAILY_COOLDOWN)
             
-            # Not ready yet
-            if now < next_claim:
-                hours = int((next_claim - now).total_seconds() / 3600)
-                mins = int(((next_claim - now).total_seconds() % 3600) / 60)
-                return False, f"⏱️ Available in {hours}h {mins}m", 0
+            if time_since_claim < cooldown_duration:
+                hours_left = int((cooldown_duration - time_since_claim).total_seconds() // 3600) + 1
+                next_claim_time = (last_claim_time + cooldown_duration).isoformat()
+                
+                return {
+                    'success': False,
+                    'message': f"⏱️ Come back in {hours_left}h for your next daily reward",
+                    'coins_gained': 0,
+                    'next_claim': next_claim_time
+                }
         
-        # Give reward
-        self.bot_data["daily_claims"][user_id_str] = now.isoformat()
+        # Give reward and persist timestamp to DB (survives bot restarts)
         self.add_coins(user_id, DAILY_REWARD, "Daily reward")
+        self.db.set_daily_claim(user_id)  # Persist to database
         
-        return True, f"🎁 Claimed {DAILY_REWARD} coins!", DAILY_REWARD
+        next_claim = (now + timedelta(hours=DAILY_COOLDOWN)).isoformat()
+        
+        return {
+            'success': True,
+            'message': f"🎁 You claimed **{DAILY_REWARD}** coins!",
+            'coins_gained': DAILY_REWARD,
+            'next_claim': next_claim
+        }
     
     # ========================================
-    # LEADERBOARD
+    # LEADERBOARD (REAL-TIME FROM DATABASE)
     # ========================================
     
     def get_top_users(self, limit: int = 10) -> list:
-        """Get top users by coin balance."""
-        users = []
+        """
+        Get top users by balance (real-time from database).
         
-        for user_id_str, balance in self.bot_data["economy"].items():
-            users.append((int(user_id_str), balance))
-        
-        # Sort: highest coins first
-        users.sort(key=lambda x: x[1], reverse=True)
-        
-        return users[:limit]
+        Returns: [(user_id, balance), ...]
+        Always queries fresh data - never uses cache.
+        """
+        return self.db.get_top_users(limit)
     
-    # ========================================
-    # LOGGING
-    # ========================================
-    
-    def _log(self, user_id: int, delta: int, new_balance: int, reason: str):
-        """Log transaction for debugging."""
-        log_entry = {
-            "time": datetime.now().isoformat(),
-            "user": user_id,
-            "delta": delta,
-            "balance": new_balance,
-            "reason": reason
-        }
-        self.bot_data["economy_log"].append(log_entry)
-        
-        # Keep only last 500 to save space
-        if len(self.bot_data["economy_log"]) > 500:
-            self.bot_data["economy_log"] = self.bot_data["economy_log"][-500:]
-        
-        logger.info(f"💰 {user_id}: {delta:+d} → {new_balance} ({reason})")
+    def get_user_count(self) -> int:
+        """Get total number of users with balances."""
+        return self.db.get_user_count()
