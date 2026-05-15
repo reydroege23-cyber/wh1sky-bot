@@ -2220,64 +2220,52 @@ async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def blackjack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle blackjack button presses. Answer IMMEDIATELY."""
+    """🧪 DIAGNOSTIC VERSION - Test if handler is triggered"""
     query = update.callback_query
-    current_user_id = query.from_user.id
     
-    # STEP 1: ANSWER CALLBACK IMMEDIATELY - THIS MUST BE FIRST
-    try:
-        logger.info(f"🎴 Blackjack button pressed: {query.data} by user {current_user_id}")
-        await query.answer()  # Answer immediately to prevent "Loading..." timeout
-        logger.info(f"✅ Callback answered immediately for {current_user_id}")
-    except Exception as e:
-        logger.error(f"❌ Failed to answer callback: {type(e).__name__}: {e}")
-        return
+    # STEP 1: ANSWER IMMEDIATELY (before ANY other logic)
+    await query.answer()
     
-    # STEP 2: PARSE CALLBACK DATA SAFELY (format: "bj_ACTION")
+    # DEBUG: Print to verify handler is running
+    print(f"✅ CALLBACK TRIGGERED - Action: {query.data}, User: {query.from_user.id}")
+    logger.info(f"✅ CALLBACK TRIGGERED - Action: {query.data}, User: {query.from_user.id}")
+    
+    # STEP 2: BASIC GAME STATE CHECK
     try:
-        action = query.data  # e.g., "bj_hit"
-        logger.info(f"🎴 Parsed action: {action} from user {current_user_id}")
+        current_user_id = query.from_user.id
+        action = query.data
         
-        # STEP 3: CHECK IF GAME EXISTS - User must have an active game
         if current_user_id not in ACTIVE_GAMES:
-            logger.warning(f"⚠️ No active game for {current_user_id} - expired or not started")
-            try:
-                await query.answer("Game expired. Start a new game.", show_alert=True)
-            except:
-                pass
+            print(f"⚠️ NO GAME for user {current_user_id}")
             return
         
-        # STEP 4: GET GAME DATA
         game_data = ACTIVE_GAMES[current_user_id]
         game = game_data['game']
         bet_amount = game_data['bet']
         
-        # STEP 4.5: CHECK GAME TIMEOUT (5 minutes = 300 seconds)
-        game_created_time = game_data.get('created_at', time.time())
-        time_elapsed = time.time() - game_created_time
-        if time_elapsed > 300:  # Game expired
-            logger.warning(f"⏱️ Game for {current_user_id} expired after {time_elapsed:.0f}s")
-            del ACTIVE_GAMES[current_user_id]
-            try:
-                await query.answer("⏱️ Game expired (5 min timeout). Start a new game.", show_alert=True)
-            except:
-                pass
-            return
-        
-        logger.info(f"🎴 Processing action: {action} for {current_user_id} (bet: {bet_amount})")
-        
-        # STEP 5: DISPATCH TO HANDLER
+        # STEP 3: ROUTE ONLY (NO HEAVY LOGIC)
         if action == "bj_hit":
+            print(f"🎴 HIT - User {current_user_id}, Bet: {bet_amount}")
             await handle_hit(query, game_data, game, bet_amount, current_user_id)
         elif action == "bj_stand":
+            print(f"✋ STAND - User {current_user_id}, Bet: {bet_amount}")
             await handle_stand(query, game_data, game, bet_amount, current_user_id)
         elif action == "bj_double":
+            print(f"💰 DOUBLE - User {current_user_id}, Bet: {bet_amount}")
             await handle_double(query, game_data, game, bet_amount, current_user_id)
         elif action == "bj_surrender":
+            print(f"🏳 SURRENDER - User {current_user_id}, Bet: {bet_amount}")
             await handle_surrender(query, game_data, game, bet_amount, current_user_id)
         else:
-            logger.warning(f"⚠️ Unknown action: {action}")
-            return
+            print(f"❓ UNKNOWN ACTION: {action}")
+            
+    except Exception as e:
+        print(f"❌ CALLBACK ERROR: {type(e).__name__}: {e}")
+        logger.error(f"❌ CALLBACK ERROR: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+        try:
+            await query.answer("Error occurred", show_alert=True)
+        except:
+            pass
         
         logger.info(f"✅ Action {action} completed successfully for {current_user_id}")
         
