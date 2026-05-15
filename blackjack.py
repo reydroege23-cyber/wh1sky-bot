@@ -482,16 +482,16 @@ def format_result_message(result: str, player_val: int, dealer_val: int,
 # BUTTON KEYBOARDS
 # ==========================================
 
-def get_blackjack_buttons() -> InlineKeyboardMarkup:
-    """Get interactive game buttons."""
+def get_blackjack_buttons(user_id: int) -> InlineKeyboardMarkup:
+    """Get interactive game buttons with user_id for ownership verification."""
     buttons = [
         [
-            InlineKeyboardButton("🃏 Hit", callback_data="bj_hit"),
-            InlineKeyboardButton("✋ Stand", callback_data="bj_stand")
+            InlineKeyboardButton("🃏 Hit", callback_data=f"bj_hit_{user_id}"),
+            InlineKeyboardButton("✋ Stand", callback_data=f"bj_stand_{user_id}")
         ],
         [
-            InlineKeyboardButton("💰 Double", callback_data="bj_double"),
-            InlineKeyboardButton("🏳️ Surrender", callback_data="bj_surrender")
+            InlineKeyboardButton("💰 Double", callback_data=f"bj_double_{user_id}"),
+            InlineKeyboardButton("🏳️ Surrender", callback_data=f"bj_surrender_{user_id}")
         ]
     ]
     

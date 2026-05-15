@@ -110,11 +110,17 @@ def load_data():
         try:
             with open(DATA_FILE, 'r') as f:
                 data = json.load(f)
-                logger.info(f"📦 Loaded data for {len(data.get('stats', {}))} users")
+                # Ensure economy key exists for leaderboard persistence
+                if "economy" not in data:
+                    data["economy"] = {}
+                if "daily_claims" not in data:
+                    data["daily_claims"] = {}
+                logger.info(f"📦 Loaded data for {len(data.get('economy', {}))} users")
                 return data
         except Exception as e:
             logger.error(f"❌ Error loading data: {e}")
-    return {"warnings": {}, "stats": {}, "mutes": {}, "metadata": {}}
+    # Initialize with economy structure for leaderboard persistence
+    return {"warnings": {}, "stats": {}, "mutes": {}, "metadata": {}, "economy": {}, "daily_claims": {}}
 
 def save_data(data):
     """Save bot data with enhanced error handling."""
@@ -1795,6 +1801,10 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id
         user = update.effective_user
+        
+        # Track user for leaderboard persistence
+        economy.track_user(user_id, username=user.username or "", first_name=user.first_name or "")
+        
         coins = economy.get_balance(user_id)
         
         # Format balance card
@@ -1825,6 +1835,10 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Claim daily free coins - beautiful UI."""
     try:
         user_id = update.effective_user.id
+        user = update.effective_user
+        
+        # Track user for leaderboard persistence
+        economy.track_user(user_id, username=user.username or "", first_name=user.first_name or "")
         
         success, msg, coins_gained = economy.claim_daily(user_id)
         save_data(bot_data)
@@ -1847,6 +1861,10 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Coinflip game with animation."""
     try:
         user_id = update.effective_user.id
+        user = update.effective_user
+        
+        # Track user for leaderboard persistence
+        economy.track_user(user_id, username=user.username or "", first_name=user.first_name or "")
         
         # Parse bet amount
         if not context.args:
@@ -1906,6 +1924,10 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Slot machine gambling game with animation."""
     try:
         user_id = update.effective_user.id
+        user = update.effective_user
+        
+        # Track user for leaderboard persistence
+        economy.track_user(user_id, username=user.username or "", first_name=user.first_name or "")
         
         # Parse bet amount
         if not context.args:
@@ -2026,6 +2048,12 @@ async def dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show top 10 richest users with beautiful formatting."""
     try:
+        user_id = update.effective_user.id
+        user = update.effective_user
+        
+        # Track user for leaderboard persistence
+        economy.track_user(user_id, username=user.username or "", first_name=user.first_name or "")
+        
         top_users = economy.get_top_users(10)
         
         if not top_users:
@@ -2053,6 +2081,9 @@ async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id
         username = update.effective_user.first_name or "Player"
+        
+        # Track user for leaderboard persistence
+        economy.track_user(user_id, username=username, first_name=update.effective_user.first_name or "")
         
         # Check if already playing
         if is_player_playing(user_id):
@@ -2173,7 +2204,7 @@ async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = await update.message.reply_text(
             board,
             parse_mode="Markdown",
-            reply_markup=get_blackjack_buttons()
+            reply_markup=get_blackjack_buttons(user_id)
         )
         
         game_data['message_id'] = msg.message_id
@@ -2211,12 +2242,22 @@ async def blackjack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 pass
             return
         
+        # Verify callback includes user_id (ownership check)
+        if f"_{user_id}" not in query.data:
+            logger.warning(f"🚫 User {user_id} tried to use button from different game")
+            try:
+                await query.answer("❌ This is not your game.", show_alert=True)
+            except:
+                pass
+            return
+        
         game_data = ACTIVE_GAMES[user_id]
         game = game_data['game']
         bet_amount = game_data['bet']
         
-        # Dispatch to appropriate handler
-        action = query.data
+        # Extract action from callback_data (format: "bj_ACTION_USER_ID")
+        callback_parts = query.data.rsplit('_', 1)  # Split from right to separate user_id
+        action = callback_parts[0]  # e.g., "bj_hit"
         logger.info(f"🎴 Processing action: {action} for {user_id}")
         
         if action == "bj_hit":
@@ -2292,7 +2333,7 @@ async def handle_hit(query, game_data, game, bet_amount, user_id):
         await query.edit_message_text(
             board,
             parse_mode="Markdown",
-            reply_markup=get_blackjack_buttons()
+            reply_markup=get_blackjack_buttons(user_id)
         )
         logger.info(f"✅ {user_id} hit successfully, new value: {player_val}")
         

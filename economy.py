@@ -48,6 +48,8 @@ class Economy:
             self.bot_data["daily_claims"] = {}
         if "economy_log" not in self.bot_data:
             self.bot_data["economy_log"] = []
+        if "user_metadata" not in self.bot_data:
+            self.bot_data["user_metadata"] = {}  # Track usernames/names for leaderboard
     
     # ========================================
     # BALANCE OPERATIONS
@@ -69,6 +71,30 @@ class Economy:
             logger.info(f"👤 New user {user_id}: {STARTING_BALANCE} coins")
         
         return self.bot_data["economy"][user_id_str]
+    
+    def track_user(self, user_id: int, username: str = "", first_name: str = ""):
+        """
+        Track user metadata for leaderboard persistence.
+        
+        What it does:
+        - Saves username and first_name to ensure leaderboard survives restarts
+        - Called whenever user interacts with economy commands
+        """
+        user_id_str = str(user_id)
+        
+        if user_id_str not in self.bot_data["user_metadata"]:
+            self.bot_data["user_metadata"][user_id_str] = {}
+        
+        # Update metadata
+        if username:
+            self.bot_data["user_metadata"][user_id_str]["username"] = username
+        if first_name:
+            self.bot_data["user_metadata"][user_id_str]["first_name"] = first_name
+        
+        # Ensure user has balance entry
+        if user_id_str not in self.bot_data["economy"]:
+            self.bot_data["economy"][user_id_str] = STARTING_BALANCE
+
     
     def add_coins(self, user_id: int, amount: int, reason: str = "") -> bool:
         """
