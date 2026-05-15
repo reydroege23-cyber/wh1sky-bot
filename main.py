@@ -2187,23 +2187,38 @@ async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def blackjack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle blackjack button presses. Answer immediately for responsiveness."""
+    """Handle blackjack button presses. Answer IMMEDIATELY."""
+    query = update.callback_query
+    user_id = query.from_user.id
+    
     try:
-        query = update.callback_query
-        user_id = query.from_user.id
-        
-        # Answer callback immediately for instant feedback
+        # CRITICAL: Answer callback IMMEDIATELY at start before any logic
+        logger.info(f"🎴 Blackjack button pressed by {user_id}: {query.data}")
         await query.answer()
+        logger.info(f"✅ Callback answered for {user_id}")
         
+    except Exception as e:
+        logger.error(f"❌ Failed to answer callback: {type(e).__name__}: {e}")
+        return
+    
+    # Now safe to do heavy operations
+    try:
         if user_id not in ACTIVE_GAMES:
+            logger.warning(f"⚠️ No active game for {user_id} - expired?")
+            try:
+                await query.answer("Game expired. Start a new game.", show_alert=True)
+            except:
+                pass
             return
         
         game_data = ACTIVE_GAMES[user_id]
         game = game_data['game']
         bet_amount = game_data['bet']
         
-        # Dispatch to handler
+        # Dispatch to appropriate handler
         action = query.data
+        logger.info(f"🎴 Processing action: {action} for {user_id}")
+        
         if action == "bj_hit":
             await handle_hit(query, game_data, game, bet_amount, user_id)
         elif action == "bj_stand":
@@ -2212,9 +2227,21 @@ async def blackjack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await handle_double(query, game_data, game, bet_amount, user_id)
         elif action == "bj_surrender":
             await handle_surrender(query, game_data, game, bet_amount, user_id)
+        else:
+            logger.warning(f"⚠️ Unknown action: {action} for {user_id}")
+        
+        logger.info(f"✅ Action {action} completed for {user_id}")
         
     except Exception as e:
-        logger.error(f"❌ Blackjack callback error: {type(e).__name__}: {e}")
+        logger.error(f"❌ Blackjack action error: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # Try to send alert to user
+        try:
+            await query.answer(f"Error: {str(e)[:50]}", show_alert=False)
+        except:
+            pass
 
 
 async def handle_hit(query, game_data, game, bet_amount, user_id):
@@ -2267,10 +2294,16 @@ async def handle_hit(query, game_data, game, bet_amount, user_id):
             parse_mode="Markdown",
             reply_markup=get_blackjack_buttons()
         )
+        logger.info(f"✅ {user_id} hit successfully, new value: {player_val}")
         
     except Exception as e:
-        logger.error(f"Hit error: {e}")
-        await query.answer("Error processing hit")
+        logger.error(f"❌ Hit error for {user_id}: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        try:
+            await query.edit_message_text(f"❌ Error: {str(e)[:80]}", parse_mode="Markdown")
+        except:
+            pass
 
 
 async def handle_stand(query, game_data, game, bet_amount, user_id):
@@ -2335,10 +2368,16 @@ async def handle_stand(query, game_data, game, bet_amount, user_id):
         await query.edit_message_text(result_msg, parse_mode="Markdown")
         end_game(user_id)
         set_cooldown(user_id)
-        logger.info(f"🎴 {user_id} stood at {game_data['player_value']}, Result: {result}")
+logger.info(f"✅ {user_id} stood at {game_data['player_value']}, Result: {result}")
         
     except Exception as e:
-        logger.error(f"Stand error: {e}")
+        logger.error(f"❌ Stand error for {user_id}: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        try:
+            await query.edit_message_text(f"❌ Error: {str(e)[:80]}", parse_mode="Markdown")
+        except:
+            pass
 
 
 async def handle_double(query, game_data, game, bet_amount, user_id):
@@ -2418,10 +2457,16 @@ async def handle_double(query, game_data, game, bet_amount, user_id):
         await query.edit_message_text(result_msg, parse_mode="Markdown")
         end_game(user_id)
         set_cooldown(user_id)
-        logger.info(f"🎴 {user_id} doubled down, Result: {result}")
+        logger.info(f"✅ {user_id} doubled down, Result: {result}")
         
     except Exception as e:
-        logger.error(f"Double error: {e}")
+        logger.error(f"❌ Double error for {user_id}: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        try:
+            await query.edit_message_text(f"❌ Error: {str(e)[:80]}", parse_mode="Markdown")
+        except:
+            pass
 
 
 async def handle_surrender(query, game_data, game, bet_amount, user_id):
@@ -2455,11 +2500,16 @@ You gave up this hand.
         await query.edit_message_text(msg, parse_mode="Markdown")
         end_game(user_id)
         set_cooldown(user_id)
-        logger.info(f"🎴 {user_id} surrendered")
+        logger.info(f"✅ {user_id} surrendered")
         
     except Exception as e:
-        logger.error(f"Surrender error: {e}")
-        await query.answer("Error processing surrender")
+        logger.error(f"❌ Surrender error for {user_id}: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        try:
+            await query.edit_message_text(f"❌ Error: {str(e)[:80]}", parse_mode="Markdown")
+        except:
+            pass
 
 
 # Admin Economy Commands
