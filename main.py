@@ -1699,6 +1699,15 @@ async def kiss(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Kiss error: {e}")
 
+@user_tracking
+async def ataturk(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Special command - Ataturk message."""
+    try:
+        await update.message.reply_text("Ata Ata seroka turkan seroku reber brez ataturk")
+        logger.info(f"🇹🇷 {update.effective_user.id} triggered ataturk")
+    except Exception as e:
+        logger.error(f"Ataturk error: {e}")
+
 @rate_limit(cooldown_type="command", cooldown_seconds=0)
 @user_tracking
 @admin_only
@@ -2466,6 +2475,7 @@ def setup_bot():
     app.add_handler(CommandHandler("daddy", daddy))
     app.add_handler(CommandHandler("Waleed", waleed))
     app.add_handler(CommandHandler("kiss", kiss))
+    app.add_handler(CommandHandler("ataturk", ataturk))
     app.add_handler(CommandHandler("speak", speak))
     app.add_handler(CommandHandler("stop_speak", stop_speak))
     app.add_handler(CommandHandler("unSpeak", unspeak))
