@@ -243,7 +243,7 @@ async def setcoins(update: Update, context: ContextTypes.DEFAULT_TYPE, economy: 
     old_balance = economy.get_balance(target_id)
     
     # Set coins
-    success = economy.set_coins(target_id, amount, f"Set by admin {user.id}")
+    success = economy.set_balance(target_id, amount, f"Set by admin {user.id}")
     new_balance = economy.get_balance(target_id)
     
     result_msg = f"✅ Set user **{target_id}** balance to **{amount}** coins\n💰 Previous: **{old_balance}** → New: **{new_balance}**"
