@@ -211,3 +211,55 @@ class GamblingGames:
             'coins_won': -bet_amount,
             'emoji': '😢'
         }
+    
+    @staticmethod
+    def roulette(bet_amount: int, choice: str) -> dict:
+        """
+        European Roulette (0-36).
+        
+        Choices:
+        - 'red' / 'black' / 'green': Color bet (2x multiplier)
+        - '0' to '36': Single number (35x multiplier)
+        
+        Returns: {'won': bool, 'result': str, 'coins_won': int, 'number': int, 'color': str}
+        """
+        # Spin wheel
+        number = random.randint(0, 36)
+        
+        # Determine color
+        if number == 0:
+            color = 'green'
+        else:
+            red_numbers = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+            color = 'red' if number in red_numbers else 'black'
+        
+        won = False
+        payout = 0
+        
+        # Check if number matches
+        if choice.isdigit():
+            choice_num = int(choice)
+            if 0 <= choice_num <= 36 and choice_num == number:
+                won = True
+                payout = bet_amount * 35
+        
+        # Check if color matches
+        elif choice in ['red', 'black', 'green']:
+            if choice == color:
+                won = True
+                payout = bet_amount * (2 if choice != 'green' else 15)
+        
+        # Result message
+        if won:
+            result_text = f"🎯 **NUMBER:** {number}\n🎨 **COLOR:** {color.upper()}\n\n🎉 **YOU WON!**\n💰 Payout: **{payout}** coins!"
+        else:
+            result_text = f"🎯 **NUMBER:** {number}\n🎨 **COLOR:** {color.upper()}\n\n💀 **YOU LOST!**"
+        
+        return {
+            'won': won,
+            'result': result_text,
+            'coins_won': payout if won else 0,
+            'number': number,
+            'color': color,
+            'emoji': '🎉' if won else '😢'
+        }

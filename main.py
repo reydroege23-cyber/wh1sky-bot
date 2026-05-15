@@ -3,12 +3,11 @@
 Advanced Telegram Bot with AI Integration & Premium Features
 """
 
-from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ChatPermissions
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
     CommandHandler,
-    CallbackQueryHandler,
     ContextTypes,
     filters
 )
@@ -25,7 +24,6 @@ import random
 import base64
 import traceback
 import os
-import time
 
 # =========================
 # ECONOMY SYSTEM IMPORTS
@@ -33,20 +31,6 @@ import time
 
 from economy import Economy
 from gambling import GamblingGames
-from blackjack import (
-    BlackjackGame,
-    BlackjackTracker,
-    is_player_playing,
-    start_new_game,
-    end_game,
-    has_cooldown,
-    set_cooldown,
-    ACTIVE_GAMES,
-    format_blackjack_board,
-    format_result_message,
-    get_blackjack_buttons,
-    get_flavor_message
-)
 from ui_animations import (
     format_result,
     format_balance_card,
@@ -111,17 +95,11 @@ def load_data():
         try:
             with open(DATA_FILE, 'r') as f:
                 data = json.load(f)
-                # Ensure economy key exists for leaderboard persistence
-                if "economy" not in data:
-                    data["economy"] = {}
-                if "daily_claims" not in data:
-                    data["daily_claims"] = {}
-                logger.info(f"📦 Loaded data for {len(data.get('economy', {}))} users")
+                logger.info(f"📦 Loaded data for {len(data.get('stats', {}))} users")
                 return data
         except Exception as e:
             logger.error(f"❌ Error loading data: {e}")
-    # Initialize with economy structure for leaderboard persistence
-    return {"warnings": {}, "stats": {}, "mutes": {}, "metadata": {}, "economy": {}, "daily_claims": {}}
+    return {"warnings": {}, "stats": {}, "mutes": {}, "metadata": {}}
 
 def save_data(data):
     """Save bot data with enhanced error handling."""
@@ -141,7 +119,9 @@ bot_data = load_data()
 # Initialize economy system
 economy = Economy(bot_data)
 gambling_games = GamblingGames()
-blackjack_tracker = BlackjackTracker(bot_data)
+
+# Game state (no-lag roulette: single callback = instant result)
+ACTIVE_ROULETTE = {}  # {user_id: {'bet': int, 'choice': str}}
 
 logger.info("✅ Economy system initialized")
 logger.info(f"💰 Loaded balances for {len(bot_data.get('economy', {}))} users")
@@ -1802,10 +1782,6 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id
         user = update.effective_user
-        
-        # Track user for leaderboard persistence
-        economy.track_user(user_id, username=user.username or "", first_name=user.first_name or "")
-        
         coins = economy.get_balance(user_id)
         
         # Format balance card
@@ -1836,10 +1812,6 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Claim daily free coins - beautiful UI."""
     try:
         user_id = update.effective_user.id
-        user = update.effective_user
-        
-        # Track user for leaderboard persistence
-        economy.track_user(user_id, username=user.username or "", first_name=user.first_name or "")
         
         success, msg, coins_gained = economy.claim_daily(user_id)
         save_data(bot_data)
@@ -1862,10 +1834,6 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Coinflip game with animation."""
     try:
         user_id = update.effective_user.id
-        user = update.effective_user
-        
-        # Track user for leaderboard persistence
-        economy.track_user(user_id, username=user.username or "", first_name=user.first_name or "")
         
         # Parse bet amount
         if not context.args:
@@ -1925,10 +1893,6 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Slot machine gambling game with animation."""
     try:
         user_id = update.effective_user.id
-        user = update.effective_user
-        
-        # Track user for leaderboard persistence
-        economy.track_user(user_id, username=user.username or "", first_name=user.first_name or "")
         
         # Parse bet amount
         if not context.args:
@@ -2049,21 +2013,14 @@ async def dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show top 10 richest users with beautiful formatting."""
     try:
-        user_id = update.effective_user.id
-        user = update.effective_user
-        
-        # Track user for leaderboard persistence
-        economy.track_user(user_id, username=user.username or "", first_name=user.first_name or "")
-        
         top_users = economy.get_top_users(10)
         
         if not top_users:
             await update.message.reply_text(error_msg("No users yet - Be first!"))
             return
         
-        # Use formatted leaderboard with user metadata
-        user_metadata = bot_data.get("user_metadata", {})
-        leaderboard = format_leaderboard(top_users, user_metadata)
+        # Use formatted leaderboard
+        leaderboard = format_leaderboard(top_users)
         leaderboard += "\n\n💰 **Play to climb the ranks!**"
         
         await update.message.reply_text(leaderboard, parse_mode="Markdown")
@@ -2073,479 +2030,171 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(error_msg("Could not retrieve leaderboard"))
 
 # =========================
-# BLACKJACK GAME COMMANDS
+# ROULETTE GAME (NO-LAG)
 # =========================
 
 @user_tracking
 @rate_limit(cooldown_type="command", cooldown_seconds=1)
-async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start a blackjack game. Command: /blackjack <bet> or /bj <bet>"""
+async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """🎡 European Roulette - Spin and win!
+    
+    Usage: /roulette <bet> <choice>
+    Choices: red, black, green, 0-36
+    
+    Payouts:
+    - Red/Black: 2x
+    - Single Number: 35x
+    - Green (0): 15x
+    """
     try:
         user_id = update.effective_user.id
-        username = update.effective_user.first_name or "Player"
         
-        # Track user for leaderboard persistence
-        economy.track_user(user_id, username=username, first_name=update.effective_user.first_name or "")
-        
-        # Check if already playing
-        if is_player_playing(user_id):
+        # Parse arguments
+        if len(context.args) < 2:
             await update.message.reply_text(
-                "🃏 **Already in a game!**\n\n"
-                "Finish your current game before starting a new one.",
-                parse_mode="Markdown"
-            )
-            return
-        
-        # Check cooldown
-        if has_cooldown(user_id):
-            await update.message.reply_text("⏱️ Please wait before starting another game.")
-            return
-        
-        # Parse bet amount
-        if not context.args:
-            await update.message.reply_text(
-                "💰 **Usage:** `/blackjack <bet>`\n\n"
-                f"Example: `/blackjack 100`\n"
-                f"Min: {MIN_BET} | Max: {MAX_BET}",
+                "🎡 **ROULETTE**\n\n"
+                "💰 **Usage:** `/roulette <bet> <choice>`\n\n"
+                "**Choices:**\n"
+                "• `red` / `black` / `green`\n"
+                "• `0` - `36` (single number)\n\n"
+                f"**Payouts:**\n"
+                "• 🔴 Red/Black: 2x\n"
+                "• 🟢 Green: 15x\n"
+                "• 🎯 Single #: 35x\n\n"
+                f"**Example:** `/roulette 100 red`",
                 parse_mode="Markdown"
             )
             return
         
         try:
             bet_amount = int(context.args[0])
+            choice = context.args[1].lower()
         except ValueError:
             await update.message.reply_text(error_msg("Invalid bet amount"))
             return
         
-        # Get balance
-        current_balance = economy.get_balance(user_id)
-        
         # Validate bet
+        current_balance = economy.get_balance(user_id)
         valid, msg = economy.validate_bet(bet_amount, current_balance)
         if not valid:
             await update.message.reply_text(msg)
             return
         
-        # Deduct bet from balance (save later)
-        economy.remove_coins(user_id, bet_amount, "Blackjack bet")
+        # Validate choice
+        valid_colors = {'red', 'black', 'green'}
+        valid_choice = choice in valid_colors or (choice.isdigit() and 0 <= int(choice) <= 36)
         
-        # Start game
-        if not start_new_game(user_id, bet_amount):
-            # Refund bet if game start fails
-            economy.add_coins(user_id, bet_amount, "Blackjack refund")
-            save_data(bot_data)
-            await update.message.reply_text(error_msg("Failed to start game"))
-            return
-        
-        game_data = ACTIVE_GAMES[user_id]
-        game = game_data['game']
-        
-        # Quick dealing animation - single message
-        game_msg = await update.message.reply_text("🎲 Shuffling... 🃏 Dealing cards...")
-        await asyncio.sleep(0.15)
-        
-        # Show game board
-        player_val = game_data['player_value']
-        dealer_visible = game_data['dealer_visible']
-        
-        board = format_blackjack_board(
-            game.player_hand,
-            player_val,
-            game.dealer_hand,
-            dealer_visible,
-            bet_amount,
-            show_dealer=False
-        )
-        
-        # Check for instant blackjack
-        _, player_blackjack = game.calculate_hand_value(game.player_hand)
-        
-        if player_blackjack:
-            # Player has blackjack! - Fast payout path
-            board += "\n\n👑 **YOU HAVE BLACKJACK!**"
-            await game_msg.delete()
-            msg = await update.message.reply_text(board, parse_mode="Markdown")
-            await asyncio.sleep(0.2)
-            
-            # Quick dealer reveal and play
-            dealer_val = game.dealer_play()
-            result = game.get_game_result(21, dealer_val, 2, len(game.dealer_hand))
-            
-            # Calculate payout
-            if result == 'BLACKJACK':
-                payout = int(bet_amount * 2.5)
-            elif result == 'PUSH':
-                payout = bet_amount
-            else:
-                payout = 0
-            
-            # Update balance
-            new_balance = economy.get_balance(user_id)
-            economy.add_coins(user_id, payout, f"Blackjack {result}")
-            new_balance = economy.get_balance(user_id)
-            
-            # Track result
-            blackjack_tracker.add_game_result(user_id, result, bet_amount, payout)
-            save_data(bot_data)  # Save once at end
-            
-            # Show result
-            result_msg = format_result_message(
-                result, 21, dealer_val,
-                bet_amount, payout,
-                current_balance, new_balance
+        if not valid_choice:
+            await update.message.reply_text(
+                error_msg("❌ Invalid choice! Use red/black/green or 0-36")
             )
-            
-            await msg.edit_text(result_msg, parse_mode="Markdown")
-            end_game(user_id)
-            set_cooldown(user_id)
-            logger.info(f"🎴 {user_id} played blackjack: {bet_amount}, Result: {result} (instant)")
             return
         
-        # Regular play - show buttons
-        await game_msg.delete()
-        msg = await update.message.reply_text(
-            board,
-            parse_mode="Markdown",
-            reply_markup=get_blackjack_buttons(user_id)
+        # Deduct bet
+        economy.remove_coins(user_id, bet_amount, "Roulette bet")
+        
+        # Store session (minimal state)
+        ACTIVE_ROULETTE[user_id] = {
+            'bet': bet_amount,
+            'choice': choice,
+            'balance_before': current_balance
+        }
+        
+        # Show betting board with SPIN button
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        
+        spin_button = InlineKeyboardMarkup([[
+            InlineKeyboardButton("🎲 SPIN!", callback_data=f"roulette_spin:{user_id}")
+        ]])
+        
+        board_msg = (
+            f"🎡 **ROULETTE READY**\n\n"
+            f"💰 **Bet:** {bet_amount} coins\n"
+            f"🎲 **Choice:** {choice.upper()}\n"
+            f"📊 **Balance:** {current_balance}\n\n"
+            f"Press SPIN to resolve!"
         )
         
-        game_data['message_id'] = msg.message_id
-        logger.info(f"🎴 {user_id} started blackjack: bet {bet_amount}")
+        msg = await update.message.reply_text(board_msg, parse_mode="Markdown", reply_markup=spin_button)
+        save_data(bot_data)
+        logger.info(f"🎡 {user_id} placed roulette bet: {bet_amount} on {choice}")
         
     except Exception as e:
-        logger.error(f"❌ Blackjack start error: {type(e).__name__}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ Roulette start error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
         await update.message.reply_text(error_msg("Game error"))
 
+# =========================
+# ROULETTE CALLBACK (INSTANT RESOLUTION)
+# =========================
 
-async def blackjack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🧪 DIAGNOSTIC VERSION - Test if handler is triggered"""
+async def roulette_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """🎡 Roulette SPIN - Instant one-shot resolution (no lag)"""
     query = update.callback_query
     
-    # STEP 1: ANSWER IMMEDIATELY (before ANY other logic)
+    # STEP 1: Answer immediately (prevents loading freeze)
     await query.answer()
     
-    # DEBUG: Print to verify handler is running
-    print(f"✅ CALLBACK TRIGGERED - Action: {query.data}, User: {query.from_user.id}")
-    logger.info(f"✅ CALLBACK TRIGGERED - Action: {query.data}, User: {query.from_user.id}")
-    
-    # STEP 2: BASIC GAME STATE CHECK
     try:
+        # Parse callback data
+        data_parts = query.data.split(":")
+        if len(data_parts) != 2 or data_parts[0] != "roulette_spin":
+            return
+        
+        user_id_in_data = int(data_parts[1])
         current_user_id = query.from_user.id
-        action = query.data
         
-        if current_user_id not in ACTIVE_GAMES:
-            print(f"⚠️ NO GAME for user {current_user_id}")
+        # Verify user matches
+        if current_user_id != user_id_in_data:
             return
         
-        game_data = ACTIVE_GAMES[current_user_id]
-        game = game_data['game']
-        bet_amount = game_data['bet']
+        # Check game exists
+        if current_user_id not in ACTIVE_ROULETTE:
+            try:
+                await query.answer("❌ Game expired. Start a new one.", show_alert=True)
+            except:
+                pass
+            return
         
-        # STEP 3: ROUTE ONLY (NO HEAVY LOGIC)
-        if action == "bj_hit":
-            print(f"🎴 HIT - User {current_user_id}, Bet: {bet_amount}")
-            await handle_hit(query, game_data, game, bet_amount, current_user_id)
-        elif action == "bj_stand":
-            print(f"✋ STAND - User {current_user_id}, Bet: {bet_amount}")
-            await handle_stand(query, game_data, game, bet_amount, current_user_id)
-        elif action == "bj_double":
-            print(f"💰 DOUBLE - User {current_user_id}, Bet: {bet_amount}")
-            await handle_double(query, game_data, game, bet_amount, current_user_id)
-        elif action == "bj_surrender":
-            print(f"🏳 SURRENDER - User {current_user_id}, Bet: {bet_amount}")
-            await handle_surrender(query, game_data, game, bet_amount, current_user_id)
+        # Get game data
+        game_session = ACTIVE_ROULETTE[current_user_id]
+        bet = game_session['bet']
+        choice = game_session['choice']
+        balance_before = game_session['balance_before']
+        
+        # SPIN THE WHEEL - Single call, instant result
+        result = gambling_games.roulette(bet, choice)
+        
+        # STEP 2: Update balance ONLY ONCE (no-lag critical)
+        if result['won']:
+            economy.add_coins(current_user_id, result['coins_won'], f"Roulette win - {choice}")
         else:
-            print(f"❓ UNKNOWN ACTION: {action}")
-            
-    except Exception as e:
-        print(f"❌ CALLBACK ERROR: {type(e).__name__}: {e}")
-        logger.error(f"❌ CALLBACK ERROR: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        try:
-            await query.answer("Error occurred", show_alert=True)
-        except:
+            # Coins already deducted in start command
             pass
         
-        logger.info(f"✅ Action {action} completed successfully for {current_user_id}")
-        
-    except Exception as e:
-        logger.error(f"❌ Blackjack error: {type(e).__name__}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        try:
-            await query.answer(f"Error: {str(e)[:40]}", show_alert=False)
-        except:
-            pass
-
-
-async def handle_hit(query, game_data, game, bet_amount, user_id):
-    """Handle Hit action - optimized for speed."""
-    try:
-        current_balance = economy.get_balance(user_id)
-        
-        # Player hits
-        player_val, bust = game.hit(is_player=True)
-        game_data['player_value'] = player_val
-        
-        # Update board
-        board = format_blackjack_board(
-            game.player_hand,
-            player_val,
-            game.dealer_hand,
-            game_data['dealer_visible'],
-            bet_amount,
-            show_dealer=False
-        )
-        
-        if bust:
-            # Player busted - single final edit with result
-            board += "\n\n💥 **YOU BUSTED!**"
-            await query.edit_message_text(board, parse_mode="Markdown", reply_markup=None)
-            await asyncio.sleep(0.1)
-            
-            # Process loss (fast path - no intermediate saves)
-            economy.remove_coins(user_id, bet_amount, "Blackjack loss")
-            new_balance = economy.get_balance(user_id)
-            
-            blackjack_tracker.add_game_result(user_id, 'LOSE', bet_amount, 0)
-            save_data(bot_data)  # Save only at game end
-            
-            result_msg = format_result_message(
-                'LOSE', player_val, 0,
-                bet_amount, 0,
-                current_balance, new_balance
-            )
-            
-            await query.edit_message_text(result_msg, parse_mode="Markdown")
-            end_game(user_id)
-            set_cooldown(user_id)
-            logger.info(f"🎴 {user_id} busted at {player_val}")
-            return
-        
-        # Update buttons - single edit
-        await query.edit_message_text(
-            board,
-            parse_mode="Markdown",
-            reply_markup=get_blackjack_buttons(user_id)
-        )
-        logger.info(f"✅ {user_id} hit successfully, new value: {player_val}")
-        
-    except Exception as e:
-        logger.error(f"❌ Hit error for {user_id}: {type(e).__name__}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        try:
-            await query.edit_message_text(f"❌ Error: {str(e)[:80]}", parse_mode="Markdown")
-        except:
-            pass
-
-
-async def handle_stand(query, game_data, game, bet_amount, user_id):
-    """Handle Stand action - optimized for speed."""
-    try:
-        current_balance = economy.get_balance(user_id)
-        
-        # Quick dealer animation text
-        board = format_blackjack_board(
-            game.player_hand,
-            game_data['player_value'],
-            game.dealer_hand,
-            0,
-            bet_amount,
-            show_dealer=False
-        )
-        
-        board += f"\n\n{get_flavor_message('dealer')}"
-        await query.edit_message_text(board, parse_mode="Markdown", reply_markup=None)
-        await asyncio.sleep(0.1)
-        
-        # Dealer plays (calculation happens fast)
-        dealer_val = game.dealer_play()
-        
-        # Determine result
-        result = game.get_game_result(
-            game_data['player_value'],
-            dealer_val,
-            len(game.player_hand),
-            len(game.dealer_hand)
-        )
-        
-        # Calculate payout
-        if result == 'BLACKJACK':
-            payout = int(bet_amount * 2.5)
-        elif result == 'WIN':
-            payout = bet_amount * 2
-        elif result == 'PUSH':
-            payout = bet_amount
-        else:
-            payout = 0
-        
-        # Update balance
-        economy.add_coins(user_id, payout, f"Blackjack {result}")
-        new_balance = economy.get_balance(user_id)
-        
-        # Track result
-        blackjack_tracker.add_game_result(user_id, result, bet_amount, payout)
-        save_data(bot_data)  # Save once at game end
-        
-        # Show final result - single edit
-        result_msg = format_result_message(
-            result,
-            game_data['player_value'],
-            dealer_val,
-            bet_amount,
-            payout,
-            current_balance,
-            new_balance
-        )
-        
-        await query.edit_message_text(result_msg, parse_mode="Markdown")
-        end_game(user_id)
-        set_cooldown(user_id)
-        logger.info(f"✅ {user_id} stood at {game_data['player_value']}, Result: {result}")
-        
-    except Exception as e:
-        logger.error(f"❌ Stand error for {user_id}: {type(e).__name__}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        try:
-            await query.edit_message_text(f"❌ Error: {str(e)[:80]}", parse_mode="Markdown")
-        except:
-            pass
-
-
-async def handle_double(query, game_data, game, bet_amount, user_id):
-    """Handle Double Down action."""
-    try:
-        # Check if they can afford to double
-        current_balance = economy.get_balance(user_id)
-        
-        if current_balance < bet_amount:
-            await query.answer("💰 Not enough coins to double", show_alert=True)
-            return
-        
-        # Deduct double amount
-        economy.remove_coins(user_id, bet_amount, "Blackjack double")
         save_data(bot_data)
+        balance_after = economy.get_balance(current_user_id)
         
-        # Update bet
-        new_bet = bet_amount * 2
-        game_data['bet'] = new_bet
-        game_data['doubled'] = True
-        
-        # Draw one more card
-        player_val, bust = game.double_down()
-        game_data['player_value'] = player_val
-        
-        board = format_blackjack_board(
-            game.player_hand,
-            player_val,
-            game.dealer_hand,
-            game_data['dealer_visible'],
-            new_bet,
-            show_dealer=False
+        # STEP 3: Show result with single message edit (no spam)
+        result_text = (
+            f"{result['emoji']} **ROULETTE RESULT**\n\n"
+            f"{result['result']}\n\n"
+            f"━━━━━━━━━━━━━━━━━\n"
+            f"💰 **Balance:** {balance_before} → {balance_after}\n"
+            f"━━━━━━━━━━━━━━━━━"
         )
         
-        board += "\n\n💰 **BET DOUBLED!**"
-        await query.edit_message_text(board, parse_mode="Markdown", reply_markup=None)
-        await asyncio.sleep(0.1)
+        await query.edit_message_text(result_text, parse_mode="Markdown")
         
-        # Automatic stand after double - dealer plays fast
-        dealer_val = game.dealer_play()
-        
-        # Determine result
-        result = game.get_game_result(
-            player_val,
-            dealer_val,
-            len(game.player_hand),
-            len(game.dealer_hand)
-        )
-        
-        # Calculate payout
-        if result == 'WIN':
-            payout = new_bet * 2
-        elif result == 'PUSH':
-            payout = new_bet
-        else:
-            payout = 0
-        
-        # Update balance
-        economy.add_coins(user_id, payout, f"Blackjack {result} (doubled)")
-        new_balance = economy.get_balance(user_id)
-        
-        # Track result
-        blackjack_tracker.add_game_result(user_id, result, new_bet, payout)
-        save_data(bot_data)  # Save once at game end
-        
-        # Show result - single edit
-        result_msg = format_result_message(
-            result,
-            player_val,
-            dealer_val,
-            new_bet,
-            payout,
-            current_balance,
-            new_balance
-        )
-        
-        await query.edit_message_text(result_msg, parse_mode="Markdown")
-        end_game(user_id)
-        set_cooldown(user_id)
-        logger.info(f"✅ {user_id} doubled down, Result: {result}")
+        # Cleanup
+        del ACTIVE_ROULETTE[current_user_id]
+        logger.info(f"🎡 {current_user_id} spun roulette: {choice}, Won: {result['won']}, Number: {result['number']}")
         
     except Exception as e:
-        logger.error(f"❌ Double error for {user_id}: {type(e).__name__}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ Roulette callback error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
         try:
-            await query.edit_message_text(f"❌ Error: {str(e)[:80]}", parse_mode="Markdown")
+            await query.answer("❌ Error occurred", show_alert=True)
         except:
             pass
-
-
-async def handle_surrender(query, game_data, game, bet_amount, user_id):
-    """Handle Surrender action."""
-    try:
-        current_balance = economy.get_balance(user_id)
-        
-        # Surrender returns half the bet
-        half_bet = bet_amount // 2
-        
-        # Update balance
-        economy.add_coins(user_id, half_bet, "Blackjack surrender")
-        new_balance = economy.get_balance(user_id)
-        
-        # Track as loss
-        blackjack_tracker.add_game_result(user_id, 'LOSE', bet_amount, half_bet)
-        save_data(bot_data)
-        
-        # Show surrender message
-        msg = f"""
-━━━━━━━━━━━━━━━━━━
-🏳️ **YOU SURRENDERED**
-
-You gave up this hand.
-
-💰 **Refund:** {half_bet} coins
-💵 **Balance:** {current_balance} → {new_balance}
-━━━━━━━━━━━━━━━━━━
-        """.strip()
-        
-        await query.edit_message_text(msg, parse_mode="Markdown")
-        end_game(user_id)
-        set_cooldown(user_id)
-        logger.info(f"✅ {user_id} surrendered")
-        
-    except Exception as e:
-        logger.error(f"❌ Surrender error for {user_id}: {type(e).__name__}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        try:
-            await query.edit_message_text(f"❌ Error: {str(e)[:80]}", parse_mode="Markdown")
-        except:
-            pass
-
 
 # Admin Economy Commands
 
@@ -3361,17 +3010,15 @@ def setup_bot():
     app.add_handler(CommandHandler("coinflip", coinflip))
     app.add_handler(CommandHandler("slots", slots))
     app.add_handler(CommandHandler("dicegame", dice_game))
+    app.add_handler(CommandHandler("roulette", roulette))
     app.add_handler(CommandHandler("top", top))
     app.add_handler(CommandHandler("addcoins", addcoins_cmd))
     app.add_handler(CommandHandler("removecoins", removecoins_cmd))
     app.add_handler(CommandHandler("setcoins", setcoins_cmd))
     
-    # Blackjack Commands
-    app.add_handler(CommandHandler("blackjack", blackjack_start))
-    app.add_handler(CommandHandler("bj", blackjack_start))
-    
-    # Callback handlers (for buttons) - Match any bj callback
-    app.add_handler(CallbackQueryHandler(blackjack_callback, pattern="^bj"))
+    # Roulette callback (SPIN button)
+    from telegram.ext import CallbackQueryHandler
+    app.add_handler(CallbackQueryHandler(roulette_callback, pattern="^roulette_spin:"))
     
     # Messages (must be last)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

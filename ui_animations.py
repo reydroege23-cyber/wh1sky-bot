@@ -125,11 +125,8 @@ def format_daily_reward(coins: int) -> str:
 ╚════════════════════════════╝
     """.strip()
 
-def format_leaderboard(top_users: list, user_metadata: dict = None) -> str:
-    """Format top users leaderboard with usernames if available."""
-    if user_metadata is None:
-        user_metadata = {}
-    
+def format_leaderboard(top_users: list) -> str:
+    """Format top users leaderboard."""
     msg = "╔════════════════════════════╗\n"
     msg += "║  🏆 **RICHEST USERS** 🏆  ║\n"
     msg += "╠════════════════════════════╣\n"
@@ -138,22 +135,9 @@ def format_leaderboard(top_users: list, user_metadata: dict = None) -> str:
     
     for idx, (user_id, balance) in enumerate(top_users[:10], 1):
         medal = medals[idx-1] if idx <= 3 else f"{idx}️⃣"
-        
-        # Try to get user display name from metadata
-        user_id_str = str(user_id)
-        user_data = user_metadata.get(user_id_str, {})
-        first_name = user_data.get('first_name', '')
-        username = user_data.get('username', '')
-        
-        # Prefer first_name, then username, then user_id
-        if first_name:
-            user_display = first_name[:10]
-        elif username:
-            user_display = f"@{username}"[:10]
-        else:
-            user_display = f"#{user_id}"[-8:]
-        
-        msg += f"║ {medal} {user_display:10} {balance:>6} coins ║\n"
+        # Limit user_id display to fit nicely
+        user_display = f"#{user_id}"[-8:]
+        msg += f"║ {medal} {user_display:8} {balance:8} coins ║\n"
     
     msg += "╚════════════════════════════╝"
     return msg

@@ -132,9 +132,6 @@ async def addcoins(update: Update, context: ContextTypes.DEFAULT_TYPE, economy: 
     # Ensure user exists in economy
     economy.get_balance(target_id)  # This auto-creates user if needed
     
-    # Track user for leaderboard persistence
-    economy.track_user(target_id)
-    
     # Add coins
     success = economy.add_coins(target_id, amount, f"Added by admin {user.id}")
     new_balance = economy.get_balance(target_id)
@@ -187,9 +184,6 @@ async def removecoins(update: Update, context: ContextTypes.DEFAULT_TYPE, econom
     
     # Ensure user exists in economy
     current_balance = economy.get_balance(target_id)
-    
-    # Track user for leaderboard persistence
-    economy.track_user(target_id)
     
     if current_balance < amount:
         await update.message.reply_text(f"❌ User only has **{current_balance}** coins!\nCannot remove **{amount}**", parse_mode="Markdown")
@@ -247,9 +241,6 @@ async def setcoins(update: Update, context: ContextTypes.DEFAULT_TYPE, economy: 
     
     # Ensure user exists in economy (auto-create if needed)
     old_balance = economy.get_balance(target_id)
-    
-    # Track user for leaderboard persistence
-    economy.track_user(target_id)
     
     # Set coins
     success = economy.set_coins(target_id, amount, f"Set by admin {user.id}")
