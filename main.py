@@ -2093,9 +2093,8 @@ async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(msg)
             return
         
-        # Deduct bet from balance
+        # Deduct bet from balance (save later)
         economy.remove_coins(user_id, bet_amount, "Blackjack bet")
-        save_data(bot_data)
         
         # Start game
         if not start_new_game(user_id, bet_amount):
@@ -2105,17 +2104,12 @@ async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(error_msg("Failed to start game"))
             return
         
-        # Animate dealing
         game_data = ACTIVE_GAMES[user_id]
         game = game_data['game']
         
-        msg_text = "🎲 Shuffling cards..."
-        game_msg = await update.message.reply_text(msg_text)
-        await asyncio.sleep(0.5)
-        
-        msg_text = "🃏 Dealing cards..."
-        await game_msg.edit_text(msg_text)
-        await asyncio.sleep(0.8)
+        # Quick dealing animation - single message
+        game_msg = await update.message.reply_text("🎲 Shuffling... 🃏 Dealing cards...")
+        await asyncio.sleep(0.15)
         
         # Show game board
         player_val = game_data['player_value']
@@ -2134,30 +2128,21 @@ async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _, player_blackjack = game.calculate_hand_value(game.player_hand)
         
         if player_blackjack:
-            # Player has blackjack!
+            # Player has blackjack! - Fast payout path
             board += "\n\n👑 **YOU HAVE BLACKJACK!**"
             await game_msg.delete()
             msg = await update.message.reply_text(board, parse_mode="Markdown")
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(0.2)
             
-            # Dealer's turn
-            dealer_msg = f"{get_flavor_message('dealer')}\n\n"
-            await msg.edit_text(dealer_msg + "🤖 Dealer's hand:\n" + 
-                              game.format_hand(game.dealer_hand), 
-                              parse_mode="Markdown")
-            await asyncio.sleep(0.5)
-            
+            # Quick dealer reveal and play
             dealer_val = game.dealer_play()
-            dealer_blackjack = len(game.dealer_hand) == 2 and dealer_val == 21
-            
-            # Determine result
             result = game.get_game_result(21, dealer_val, 2, len(game.dealer_hand))
             
             # Calculate payout
             if result == 'BLACKJACK':
                 payout = int(bet_amount * 2.5)
             elif result == 'PUSH':
-                payout = bet_amount  # Refund
+                payout = bet_amount
             else:
                 payout = 0
             
@@ -2168,7 +2153,7 @@ async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Track result
             blackjack_tracker.add_game_result(user_id, result, bet_amount, payout)
-            save_data(bot_data)
+            save_data(bot_data)  # Save once at end
             
             # Show result
             result_msg = format_result_message(
@@ -2191,7 +2176,6 @@ async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_blackjack_buttons()
         )
         
-        # Store message ID for editing later
         game_data['message_id'] = msg.message_id
         logger.info(f"🎴 {user_id} started blackjack: bet {bet_amount}")
         
@@ -2203,24 +2187,23 @@ async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def blackjack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle blackjack button presses."""
+    """Handle blackjack button presses. Answer immediately for responsiveness."""
     try:
         query = update.callback_query
         user_id = query.from_user.id
         
-        if user_id not in ACTIVE_GAMES:
-            await query.answer("❌ No active game")
-            return
-        
+        # Answer callback immediately for instant feedback
         await query.answer()
+        
+        if user_id not in ACTIVE_GAMES:
+            return
         
         game_data = ACTIVE_GAMES[user_id]
         game = game_data['game']
         bet_amount = game_data['bet']
         
+        # Dispatch to handler
         action = query.data
-        
-        # Handle actions
         if action == "bj_hit":
             await handle_hit(query, game_data, game, bet_amount, user_id)
         elif action == "bj_stand":
@@ -2232,17 +2215,13 @@ async def blackjack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
     except Exception as e:
         logger.error(f"❌ Blackjack callback error: {type(e).__name__}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        try:
-            await query.answer("❌ Error processing action")
-        except:
-            pass
 
 
 async def handle_hit(query, game_data, game, bet_amount, user_id):
-    """Handle Hit action."""
+    """Handle Hit action - optimized for speed."""
     try:
+        current_balance = economy.get_balance(user_id)
+        
         # Player hits
         player_val, bust = game.hit(is_player=True)
         game_data['player_value'] = player_val
@@ -2258,18 +2237,17 @@ async def handle_hit(query, game_data, game, bet_amount, user_id):
         )
         
         if bust:
-            # Player busted!
+            # Player busted - single final edit with result
             board += "\n\n💥 **YOU BUSTED!**"
             await query.edit_message_text(board, parse_mode="Markdown", reply_markup=None)
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(0.1)
             
-            # Process loss
-            current_balance = economy.get_balance(user_id)
+            # Process loss (fast path - no intermediate saves)
             economy.remove_coins(user_id, bet_amount, "Blackjack loss")
             new_balance = economy.get_balance(user_id)
             
             blackjack_tracker.add_game_result(user_id, 'LOSE', bet_amount, 0)
-            save_data(bot_data)
+            save_data(bot_data)  # Save only at game end
             
             result_msg = format_result_message(
                 'LOSE', player_val, 0,
@@ -2283,7 +2261,7 @@ async def handle_hit(query, game_data, game, bet_amount, user_id):
             logger.info(f"🎴 {user_id} busted at {player_val}")
             return
         
-        # Update buttons
+        # Update buttons - single edit
         await query.edit_message_text(
             board,
             parse_mode="Markdown",
@@ -2296,39 +2274,25 @@ async def handle_hit(query, game_data, game, bet_amount, user_id):
 
 
 async def handle_stand(query, game_data, game, bet_amount, user_id):
-    """Handle Stand action."""
+    """Handle Stand action - optimized for speed."""
     try:
         current_balance = economy.get_balance(user_id)
         
-        # Show dealer animation
+        # Quick dealer animation text
         board = format_blackjack_board(
             game.player_hand,
             game_data['player_value'],
             game.dealer_hand,
-            0,  # Not showing yet
+            0,
             bet_amount,
             show_dealer=False
         )
         
         board += f"\n\n{get_flavor_message('dealer')}"
         await query.edit_message_text(board, parse_mode="Markdown", reply_markup=None)
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(0.1)
         
-        # Dealer reveals
-        dealer_visible, _ = game.calculate_hand_value(game.dealer_hand)
-        board = format_blackjack_board(
-            game.player_hand,
-            game_data['player_value'],
-            game.dealer_hand,
-            dealer_visible,
-            bet_amount,
-            show_dealer=True
-        )
-        
-        await query.edit_message_text(board, parse_mode="Markdown")
-        await asyncio.sleep(0.5)
-        
-        # Dealer plays
+        # Dealer plays (calculation happens fast)
         dealer_val = game.dealer_play()
         
         # Determine result
@@ -2355,9 +2319,9 @@ async def handle_stand(query, game_data, game, bet_amount, user_id):
         
         # Track result
         blackjack_tracker.add_game_result(user_id, result, bet_amount, payout)
-        save_data(bot_data)
+        save_data(bot_data)  # Save once at game end
         
-        # Show result
+        # Show final result - single edit
         result_msg = format_result_message(
             result,
             game_data['player_value'],
@@ -2375,7 +2339,6 @@ async def handle_stand(query, game_data, game, bet_amount, user_id):
         
     except Exception as e:
         logger.error(f"Stand error: {e}")
-        await query.answer("Error processing stand")
 
 
 async def handle_double(query, game_data, game, bet_amount, user_id):
@@ -2412,25 +2375,9 @@ async def handle_double(query, game_data, game, bet_amount, user_id):
         
         board += "\n\n💰 **BET DOUBLED!**"
         await query.edit_message_text(board, parse_mode="Markdown", reply_markup=None)
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.1)
         
-        # Automatic stand after double
-        current_balance = economy.get_balance(user_id)
-        
-        # Dealer animation
-        board = format_blackjack_board(
-            game.player_hand,
-            player_val,
-            game.dealer_hand,
-            0,
-            new_bet,
-            show_dealer=False
-        )
-        board += f"\n\n{get_flavor_message('dealer')}"
-        await query.edit_message_text(board, parse_mode="Markdown")
-        await asyncio.sleep(0.8)
-        
-        # Dealer plays
+        # Automatic stand after double - dealer plays fast
         dealer_val = game.dealer_play()
         
         # Determine result
@@ -2455,9 +2402,9 @@ async def handle_double(query, game_data, game, bet_amount, user_id):
         
         # Track result
         blackjack_tracker.add_game_result(user_id, result, new_bet, payout)
-        save_data(bot_data)
+        save_data(bot_data)  # Save once at game end
         
-        # Show result
+        # Show result - single edit
         result_msg = format_result_message(
             result,
             player_val,
@@ -2475,7 +2422,6 @@ async def handle_double(query, game_data, game, bet_amount, user_id):
         
     except Exception as e:
         logger.error(f"Double error: {e}")
-        await query.answer("Error processing double")
 
 
 async def handle_surrender(query, game_data, game, bet_amount, user_id):

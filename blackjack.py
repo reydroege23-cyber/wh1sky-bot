@@ -70,15 +70,17 @@ class BlackjackGame:
     def calculate_hand_value(self, hand: List[str]) -> Tuple[int, bool]:
         """
         Calculate best hand value considering aces.
+        Optimized to avoid recalculation.
         Returns: (value, is_blackjack)
         """
         if not hand:
             return 0, False
         
+        hand_len = len(hand)
         value = 0
         aces = 0
         
-        # Count card values and aces
+        # Count card values and aces - single pass
         for card in hand:
             card_value = card[:-1]  # Remove suit symbol
             
@@ -86,15 +88,16 @@ class BlackjackGame:
                 aces += 1
                 value += 11
             else:
-                value += self.CARD_VALUES[card_value]
+                # Use direct lookup
+                value += self.CARD_VALUES.get(card_value, 10)
         
-        # Adjust for aces if busting
-        while value > 21 and aces > 0:
+        # Adjust for aces if busting - optimized
+        while value > 21 and aces:
             value -= 10  # Convert ace from 11 to 1
             aces -= 1
         
-        # Check for blackjack (21 with 2 cards, one being ace)
-        is_blackjack = (len(hand) == 2 and value == 21)
+        # Check for blackjack (21 with 2 cards)
+        is_blackjack = (hand_len == 2 and value == 21 and aces > 0)
         
         return value, is_blackjack
     
@@ -268,10 +271,10 @@ class BlackjackTracker:
 
 
 # ==========================================
-# GAME STATE MANAGEMENT
+# GAME STATE MANAGEMENT (OPTIMIZED)
 # ==========================================
 
-# Track active games: {user_id: game_data}
+# Track active games with timestamps for cleanup
 ACTIVE_GAMES: Dict[int, dict] = {}
 
 # Track game cooldowns: {user_id: timestamp}
@@ -280,14 +283,37 @@ GAME_COOLDOWNS: Dict[int, datetime] = {}
 # Prevent multiple simultaneous games per user
 PLAYER_IN_GAME = set()
 
+# Game cleanup timeout (5 minutes)
+GAME_TIMEOUT = 300
+
 
 def is_player_playing(user_id: int) -> bool:
     """Check if player already has an active game."""
     return user_id in PLAYER_IN_GAME
 
 
+def cleanup_old_games():
+    """Remove inactive games (older than 5 minutes)."""
+    current_time = datetime.now()
+    expired_users = []
+    
+    for user_id, game_data in list(ACTIVE_GAMES.items()):
+        if 'started_at' in game_data:
+            elapsed = (current_time - game_data['started_at']).total_seconds()
+            if elapsed > GAME_TIMEOUT:
+                expired_users.append(user_id)
+    
+    for user_id in expired_users:
+        end_game(user_id)
+        logger.info(f"🧹 Cleaned up expired blackjack game for {user_id}")
+
+
 def start_new_game(user_id: int, bet: int):
     """Start a new blackjack game for user."""
+    # Cleanup expired games periodically
+    if len(ACTIVE_GAMES) > 10:
+        cleanup_old_games()
+    
     if user_id in PLAYER_IN_GAME:
         return False
     
@@ -303,7 +329,8 @@ def start_new_game(user_id: int, bet: int):
         'doubled': False,
         'player_value': player_val,
         'dealer_visible': dealer_visible,
-        'result': None
+        'result': None,
+        'started_at': datetime.now()
     }
     
     return True
@@ -388,36 +415,28 @@ def get_flavor_message(msg_type: str) -> str:
 # UI FORMATTING
 # ==========================================
 
+# Cache BlackjackGame instance to avoid recreating
+_game_cache = BlackjackGame()
+
 def format_blackjack_board(player_hand: List[str], player_val: int, 
                            dealer_hand: List[str], dealer_val: int,
                            bet: int, show_dealer: bool = False) -> str:
-    """Format beautiful blackjack game board."""
-    game = BlackjackGame()
+    """Format beautiful blackjack game board. Optimized."""
+    # Reuse cached instance
+    player_display = _game_cache.format_hand(player_hand)
+    dealer_display = (_game_cache.format_hand(dealer_hand) if show_dealer 
+                     else _game_cache.format_hand(dealer_hand, hide_first=True))
     
-    # Format player hand
-    player_display = game.format_hand(player_hand)
+    dealer_val_str = str(dealer_val) if show_dealer else '?'
     
-    # Format dealer hand
-    if show_dealer:
-        dealer_display = game.format_hand(dealer_hand)
-    else:
-        dealer_display = game.format_hand(dealer_hand, hide_first=True)
-    
-    board = f"""
-━━━━━━━━━━━━━━━━━━
-🃏 **BLACKJACK**
-
-👤 **You:**
-{player_display} = **{player_val}**
-
-🤖 **Dealer:**
-{dealer_display} = **{dealer_val if show_dealer else '?'}**
-
-💰 **Bet:** {bet} coins
-━━━━━━━━━━━━━━━━━━
-    """.strip()
-    
-    return board
+    return (
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🃏 **BLACKJACK**\n\n"
+        f"👤 **You:**\n{player_display} = **{player_val}**\n\n"
+        f"🤖 **Dealer:**\n{dealer_display} = **{dealer_val_str}**\n\n"
+        f"💰 **Bet:** {bet} coins\n"
+        f"━━━━━━━━━━━━━━━━━━"
+    )
 
 
 def format_result_message(result: str, player_val: int, dealer_val: int,
