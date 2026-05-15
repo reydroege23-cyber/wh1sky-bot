@@ -25,6 +25,7 @@ import random
 import base64
 import traceback
 import os
+import time
 
 # =========================
 # ECONOMY SYSTEM IMPORTS
@@ -2060,8 +2061,9 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(error_msg("No users yet - Be first!"))
             return
         
-        # Use formatted leaderboard
-        leaderboard = format_leaderboard(top_users)
+        # Use formatted leaderboard with user metadata
+        user_metadata = bot_data.get("user_metadata", {})
+        leaderboard = format_leaderboard(top_users, user_metadata)
         leaderboard += "\n\n💰 **Play to climb the ranks!**"
         
         await update.message.reply_text(leaderboard, parse_mode="Markdown")
@@ -2220,67 +2222,97 @@ async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def blackjack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle blackjack button presses. Answer IMMEDIATELY."""
     query = update.callback_query
-    user_id = query.from_user.id
+    current_user_id = query.from_user.id
     
+    # STEP 1: ANSWER CALLBACK IMMEDIATELY - THIS MUST BE FIRST
     try:
-        # CRITICAL: Answer callback IMMEDIATELY at start before any logic
-        logger.info(f"🎴 Blackjack button pressed by {user_id}: {query.data}")
-        await query.answer()
-        logger.info(f"✅ Callback answered for {user_id}")
-        
+        logger.info(f"🎴 Blackjack button pressed: {query.data} by user {current_user_id}")
+        await query.answer()  # Answer immediately to prevent "Loading..." timeout
+        logger.info(f"✅ Callback answered immediately for {current_user_id}")
     except Exception as e:
         logger.error(f"❌ Failed to answer callback: {type(e).__name__}: {e}")
         return
     
-    # Now safe to do heavy operations
+    # STEP 2: PARSE CALLBACK DATA SAFELY (format: "bj_action:user_id")
     try:
-        if user_id not in ACTIVE_GAMES:
-            logger.warning(f"⚠️ No active game for {user_id} - expired?")
+        if ":" not in query.data:
+            logger.warning(f"⚠️ Invalid callback format: {query.data}")
+            return
+        
+        parts = query.data.split(":")
+        if len(parts) != 2:
+            logger.warning(f"⚠️ Callback has wrong number of parts: {query.data}")
+            return
+        
+        action = parts[0]  # e.g., "bj_hit"
+        game_owner_id = int(parts[1])  # e.g., 123456
+        
+        logger.info(f"🎴 Parsed - Action: {action}, Owner: {game_owner_id}, Clicker: {current_user_id}")
+        
+        # STEP 3: VERIFY OWNERSHIP - Only game owner can click buttons
+        if current_user_id != game_owner_id:
+            logger.warning(f"🚫 User {current_user_id} tried to use game of {game_owner_id}")
+            try:
+                await query.answer("❌ This is not your blackjack game.", show_alert=True)
+            except:
+                pass
+            return
+        
+        # STEP 4: CHECK IF GAME EXISTS
+        if game_owner_id not in ACTIVE_GAMES:
+            logger.warning(f"⚠️ No active game for {game_owner_id} - expired or finished")
             try:
                 await query.answer("Game expired. Start a new game.", show_alert=True)
             except:
                 pass
             return
         
-        # Verify callback includes user_id (ownership check)
-        if f"_{user_id}" not in query.data:
-            logger.warning(f"🚫 User {user_id} tried to use button from different game")
+        # STEP 5: GET GAME DATA
+        game_data = ACTIVE_GAMES[game_owner_id]
+        game = game_data['game']
+        bet_amount = game_data['bet']
+        
+        # STEP 5.5: CHECK GAME TIMEOUT (5 minutes = 300 seconds)
+        game_created_time = game_data.get('created_at', time.time())
+        time_elapsed = time.time() - game_created_time
+        if time_elapsed > 300:  # Game expired
+            logger.warning(f"⏱️ Game for {game_owner_id} expired after {time_elapsed:.0f}s")
+            del ACTIVE_GAMES[game_owner_id]
             try:
-                await query.answer("❌ This is not your game.", show_alert=True)
+                await query.answer("⏱️ Game expired (5 min timeout). Start a new game.", show_alert=True)
             except:
                 pass
             return
         
-        game_data = ACTIVE_GAMES[user_id]
-        game = game_data['game']
-        bet_amount = game_data['bet']
+        logger.info(f"🎴 Processing action: {action} for {game_owner_id} (bet: {bet_amount})")
         
-        # Extract action from callback_data (format: "bj_ACTION_USER_ID")
-        callback_parts = query.data.rsplit('_', 1)  # Split from right to separate user_id
-        action = callback_parts[0]  # e.g., "bj_hit"
-        logger.info(f"🎴 Processing action: {action} for {user_id}")
-        
+        # STEP 6: DISPATCH TO HANDLER
         if action == "bj_hit":
-            await handle_hit(query, game_data, game, bet_amount, user_id)
+            await handle_hit(query, game_data, game, bet_amount, game_owner_id)
         elif action == "bj_stand":
-            await handle_stand(query, game_data, game, bet_amount, user_id)
+            await handle_stand(query, game_data, game, bet_amount, game_owner_id)
         elif action == "bj_double":
-            await handle_double(query, game_data, game, bet_amount, user_id)
+            await handle_double(query, game_data, game, bet_amount, game_owner_id)
         elif action == "bj_surrender":
-            await handle_surrender(query, game_data, game, bet_amount, user_id)
+            await handle_surrender(query, game_data, game, bet_amount, game_owner_id)
         else:
-            logger.warning(f"⚠️ Unknown action: {action} for {user_id}")
+            logger.warning(f"⚠️ Unknown action: {action}")
+            return
         
-        logger.info(f"✅ Action {action} completed for {user_id}")
+        logger.info(f"✅ Action {action} completed successfully for {game_owner_id}")
         
+    except ValueError as e:
+        logger.error(f"❌ Blackjack parse error: {type(e).__name__}: {e}")
+        try:
+            await query.answer("Error parsing game action", show_alert=False)
+        except:
+            pass
     except Exception as e:
-        logger.error(f"❌ Blackjack action error: {type(e).__name__}: {e}")
+        logger.error(f"❌ Blackjack error: {type(e).__name__}: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        
-        # Try to send alert to user
         try:
-            await query.answer(f"Error: {str(e)[:50]}", show_alert=False)
+            await query.answer(f"Error: {str(e)[:40]}", show_alert=False)
         except:
             pass
 

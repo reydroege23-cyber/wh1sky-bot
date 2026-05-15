@@ -16,6 +16,7 @@ Features:
 
 import random
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Tuple, List
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -330,7 +331,8 @@ def start_new_game(user_id: int, bet: int):
         'player_value': player_val,
         'dealer_visible': dealer_visible,
         'result': None,
-        'started_at': datetime.now()
+        'started_at': datetime.now(),
+        'created_at': time.time()  # For timeout checking
     }
     
     return True
@@ -483,15 +485,15 @@ def format_result_message(result: str, player_val: int, dealer_val: int,
 # ==========================================
 
 def get_blackjack_buttons(user_id: int) -> InlineKeyboardMarkup:
-    """Get interactive game buttons with user_id for ownership verification."""
+    """Get interactive game buttons with user_id for ownership verification. Format: action:user_id"""
     buttons = [
         [
-            InlineKeyboardButton("🃏 Hit", callback_data=f"bj_hit_{user_id}"),
-            InlineKeyboardButton("✋ Stand", callback_data=f"bj_stand_{user_id}")
+            InlineKeyboardButton("🃏 Hit", callback_data=f"bj_hit:{user_id}"),
+            InlineKeyboardButton("✋ Stand", callback_data=f"bj_stand:{user_id}")
         ],
         [
-            InlineKeyboardButton("💰 Double", callback_data=f"bj_double_{user_id}"),
-            InlineKeyboardButton("🏳️ Surrender", callback_data=f"bj_surrender_{user_id}")
+            InlineKeyboardButton("💰 Double", callback_data=f"bj_double:{user_id}"),
+            InlineKeyboardButton("🏳️ Surrender", callback_data=f"bj_surrender:{user_id}")
         ]
     ]
     
