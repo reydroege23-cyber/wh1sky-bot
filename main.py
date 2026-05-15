@@ -2985,16 +2985,18 @@ def run_bot_with_recovery():
             error_str = str(e)
             retry_count += 1
             
-            # Handle "terminated by other getUpdates" - needs longer wait
+            # Handle "terminated by other getUpdates" - needs LONG wait for connection to fully release
             if "terminated by other getUpdates" in error_str or "Conflict" in error_str:
-                delay = 60  # Wait 60 seconds for connection to fully clear
-                logger.warning(f"⚠️ Connection conflict detected (another bot instance?)")
-                logger.warning(f"⏳ Waiting 60s for connection to clear before retry...")
+                delay = 120  # Wait 120 seconds (2 mins) for Telegram to fully release connection
+                logger.critical(f"🚨 CONNECTION CONFLICT - Telegram server still thinks another bot is running")
+                logger.warning(f"⏳ Waiting 120 seconds for Telegram to release the connection...")
+                logger.warning(f"   (This happens when bot crashes - connection takes time to timeout)")
+                logger.warning(f"   Retry attempt {retry_count}/{max_retries}")
             else:
                 delay = min(base_delay * (2 ** retry_count), 300)  # Max 5 min delay
             
             logger.error(f"🔥 Error: {e}")
-            logger.error(f"⏳ Retry {retry_count}/{max_retries} in {delay}s...")
+            logger.error(f"⏳ Waiting {delay}s before retry...")
             
             if retry_count >= max_retries:
                 logger.critical(f"❌ Max retries reached. Bot failed.")
