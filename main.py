@@ -2982,8 +2982,16 @@ def run_bot_with_recovery():
             break
             
         except Exception as e:
+            error_str = str(e)
             retry_count += 1
-            delay = min(base_delay * (2 ** retry_count), 300)  # Max 5 min delay
+            
+            # Handle "terminated by other getUpdates" - needs longer wait
+            if "terminated by other getUpdates" in error_str or "Conflict" in error_str:
+                delay = 60  # Wait 60 seconds for connection to fully clear
+                logger.warning(f"⚠️ Connection conflict detected (another bot instance?)")
+                logger.warning(f"⏳ Waiting 60s for connection to clear before retry...")
+            else:
+                delay = min(base_delay * (2 ** retry_count), 300)  # Max 5 min delay
             
             logger.error(f"🔥 Error: {e}")
             logger.error(f"⏳ Retry {retry_count}/{max_retries} in {delay}s...")
