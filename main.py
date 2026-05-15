@@ -2368,7 +2368,7 @@ async def handle_stand(query, game_data, game, bet_amount, user_id):
         await query.edit_message_text(result_msg, parse_mode="Markdown")
         end_game(user_id)
         set_cooldown(user_id)
-logger.info(f"✅ {user_id} stood at {game_data['player_value']}, Result: {result}")
+        logger.info(f"✅ {user_id} stood at {game_data['player_value']}, Result: {result}")
         
     except Exception as e:
         logger.error(f"❌ Stand error for {user_id}: {type(e).__name__}: {e}")
