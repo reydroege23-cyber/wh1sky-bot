@@ -148,18 +148,38 @@ class GamblingGames:
             # Bot wins
             return {
                 'won': False,
-                'result': f"�️ **SCRATCH CARD!**\n{label}\nLost **{bet_amount}** coins!",
+                'result': f"🎲 You: **{your_roll}** | Bot: **{bot_roll}**\n❌ You lost **{bet_amount}** coins!",
                 'coins_won': -bet_amount,
                 'emoji': '😢'
             }
         
-        # Fallback (shouldn't reach)
-        return {
-            'won': False,
-            'result': f"🎟️ Lost **{bet_amount}** coins!",
-            'coins_won': -bet_amount,
-            'emoji': '😢'
-        }
+        # Tie - no gain or loss
+        else:
+            return {
+                'won': False,
+                'result': f"🎲 You: **{your_roll}** | Bot: **{bot_roll}**\n🤝 It's a tie! No change.",
+                'coins_won': 0,
+                'emoji': '🤝'
+            }
+    
+    @staticmethod
+    def scratch_card(bet_amount: int) -> dict:
+        """
+        Scratch card: Hidden prize reveal.
+        
+        5%: Jackpot (10x)
+        15%: Big win (3x)
+        25%: Win (1.5x)
+        55%: Loss
+        
+        Returns: {'won': bool, 'result': str, 'coins_won': int, 'emoji': str}
+        """
+        # Prize tiers with probabilities
+        prizes = [
+            (0.05, 10, '🏆 MEGA JACKPOT! 🏆'),
+            (0.15, 3, '🎉 BIG WIN! 🎉'),
+            (0.25, 1.5, '✨ Won some coins!'),
+            (0.55, 0, '😢 Nothing...')
         ]
         
         roll = random.random()
