@@ -26,6 +26,14 @@ import traceback
 import os
 
 # =========================
+# ECONOMY SYSTEM IMPORTS
+# =========================
+
+from economy import Economy
+from gambling import GamblingGames
+import admin_economy
+
+# =========================
 # LOGGING SETUP (ENHANCED)
 # =========================
 
@@ -92,6 +100,17 @@ def save_data(data):
 
 # Load initial data
 bot_data = load_data()
+
+# =========================
+# ECONOMY SYSTEM INITIALIZATION
+# =========================
+
+# Initialize economy system
+economy = Economy(bot_data)
+gambling_games = GamblingGames()
+
+logger.info("✅ Economy system initialized")
+logger.info(f"💰 Loaded balances for {len(bot_data.get('economy', {}))} users")
 
 # =========================
 # DECORATORS (ENHANCED)
@@ -302,6 +321,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/stats` - Your statistics
 • `/ping` - Check bot status
 
+**💰 ECONOMY COMMANDS (VIRTUAL COINS ONLY):**
+⚠️ **DISCLAIMER**: No real money, crypto, or real-world value!
+• `/balance` - Check your coin balance
+• `/daily` - Claim 50 free coins (24h cooldown)
+• `/coinflip <amount>` - 50/50 game (2x multiplier)
+• `/slots <amount>` - Slot machine (jackpot possible)
+• `/dicegame <amount>` - Roll vs bot
+• `/top` - Leaderboard (top 10 richest)
+
 **🎮 FUN COMMANDS (11):**
 • `/roll [sides]` - Roll dice (default 6)
 • `/dice` - Roll dice (1-6)
@@ -334,8 +362,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/Arya` - Special command 🚩
 • `/kurdishezdi` - Special command 🇮🇶
 • `/Serok` - Music link 🎵
+• `/ataturk` - Special command 🇹🇷
 
-**👮 ADMIN COMMANDS (11):**
+**👮 ADMIN COMMANDS (14):**
 *Reply to a message to execute:*
 • `/ilikeu` - Issue warning
 • `/warns` - Check warnings
@@ -352,14 +381,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/stop_speak` - Disable speak mode
 • `/unSpeak` - Disable speak mode (alias)
 
+**💎 OWNER-ONLY ECONOMY COMMANDS:**
+*Only user ID 8577797097 can use these:*
+• `/addcoins @user amount` - Add coins to user
+• `/removecoins @user amount` - Remove coins from user
+• `/setcoins @user amount` - Set user balance
+
 **⚙️ BOT SETTINGS:**
 • Max Warnings: {MAX_WARNINGS}
 • Mute Duration: {MUTE_DURATION} min
 • AI Model: {AI_MODEL}
+• Economy: ENABLED ✅ (Virtual coins only)
 • Moderation: ENABLED ✅
-• Total Commands: 40+
+• Total Commands: 50+
 
 **📞 Need help?** Contact an admin or check logs.
+
+⚠️ **IMPORTANT**: Economy system uses VIRTUAL currency only. No real money, no crypto, no withdrawals. For entertainment only!
     """
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
@@ -430,10 +468,22 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_msg = """
 📢 **WHISKY BOT - LATEST UPDATES**
 
-**✨ RECENT CHANGES:**
-• ✅ Removed authorization system - all users have access
-• ✅ Removed /authorize commands - no more access restrictions
-• ✅ Simplified admin system - cleaner codebase
+**✨ VERSION 3.0 - ECONOMY SYSTEM ADDED:**
+• ✅ Virtual coin economy system
+• ✅ Gambling games (coinflip, slots, dice)
+• ✅ Leaderboard system (/top)
+• ✅ Daily rewards (/daily)
+• ✅ Owner-only admin economy commands
+
+**💰 ECONOMY COMMANDS:**
+• /balance - Check your coins
+• /daily - Claim 50 free coins (24h)
+• /coinflip <amount> - 50/50 game
+• /slots <amount> - Slot machine
+• /dicegame <amount> - Dice game
+• /top - Leaderboard
+
+**⚠️ DISCLAIMER**: Virtual currency only! No real money, crypto, or withdrawals. Entertainment only!
 
 **🎮 FUN COMMANDS:**
 • /roll [sides] - Roll dice
@@ -479,7 +529,7 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • /ping - Bot status
 • /updates - This message
 
-**📝 VERSION:** 2.6+
+**📝 VERSION:** 3.0+
 
 🎉 Enjoy using Whisky Bot!
         """
@@ -1708,6 +1758,275 @@ async def ataturk(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Ataturk error: {e}")
 
+# =========================
+# ECONOMY COMMANDS
+# =========================
+
+@user_tracking
+async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show user's coin balance."""
+    try:
+        user_id = update.effective_user.id
+        user = update.effective_user
+        coins = economy.get_balance(user_id)
+        
+        balance_msg = f"""
+💰 **YOUR BALANCE**
+
+👤 User: {user.first_name}
+🪙 Coins: **{coins}**
+
+⚠️ **DISCLAIMER**: This system uses VIRTUAL currency only. 
+No real money, crypto, or real-world value. For entertainment only.
+
+🎮 Try your luck:
+• `/coinflip 10` - Double or nothing (50/50)
+• `/slots 10` - Spin the slots
+• `/dice 10` - Roll the dice
+• `/daily` - Claim free coins every 24h
+        """
+        await update.message.reply_text(balance_msg, parse_mode="Markdown")
+        logger.info(f"💰 {user_id} checked balance: {coins} coins")
+    except Exception as e:
+        logger.error(f"Balance error: {e}")
+        await update.message.reply_text("❌ Error retrieving balance")
+
+@user_tracking
+@rate_limit(cooldown_type="command", cooldown_seconds=2)
+async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Claim daily free coins."""
+    try:
+        user_id = update.effective_user.id
+        
+        success, msg, coins_gained = economy.claim_daily(user_id)
+        save_data(bot_data)
+        
+        if success:
+            new_balance = economy.get_balance(user_id)
+            daily_msg = f"""
+🎁 **DAILY REWARD CLAIMED**
+
+✅ Gained: **+{coins_gained}** coins
+💰 New Balance: **{new_balance}** coins
+
+Come back tomorrow for more! 🌅
+            """
+            await update.message.reply_text(daily_msg, parse_mode="Markdown")
+            logger.info(f"🎁 {user_id} claimed daily reward")
+        else:
+            await update.message.reply_text(msg)
+    except Exception as e:
+        logger.error(f"Daily error: {e}")
+        await update.message.reply_text("❌ Error claiming daily reward")
+
+@user_tracking
+@rate_limit(cooldown_type="command", cooldown_seconds=2)
+async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Coinflip gambling game."""
+    try:
+        user_id = update.effective_user.id
+        
+        # Parse bet amount
+        if not context.args:
+            await update.message.reply_text("❌ Usage: `/coinflip 10`", parse_mode="Markdown")
+            return
+        
+        try:
+            bet_amount = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid bet amount")
+            return
+        
+        # Validate bet
+        valid, msg = economy.validate_bet(bet_amount)
+        if not valid:
+            await update.message.reply_text(msg)
+            return
+        
+        # Check balance
+        current_balance = economy.get_balance(user_id)
+        if current_balance < bet_amount:
+            await update.message.reply_text(f"❌ You only have {current_balance} coins! Bet less.")
+            return
+        
+        # Play game
+        result = gambling_games.coinflip(bet_amount)
+        
+        # Update balance
+        if result['won']:
+            economy.add_coins(user_id, result['coins_won'], f"Coinflip win: +{result['coins_won']}")
+        else:
+            economy.remove_coins(user_id, bet_amount, f"Coinflip loss: -{bet_amount}")
+        
+        save_data(bot_data)
+        new_balance = economy.get_balance(user_id)
+        
+        game_msg = f"""
+{result['emoji']} **COINFLIP**
+
+{result['result']}
+
+💰 New Balance: **{new_balance}** coins
+        """
+        await update.message.reply_text(game_msg, parse_mode="Markdown")
+        logger.info(f"🪙 {user_id} played coinflip: {bet_amount} coins, Won: {result['won']}")
+    except Exception as e:
+        logger.error(f"Coinflip error: {e}")
+        await update.message.reply_text("❌ Error playing coinflip")
+
+@user_tracking
+@rate_limit(cooldown_type="command", cooldown_seconds=2)
+async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Slot machine gambling game."""
+    try:
+        user_id = update.effective_user.id
+        
+        # Parse bet amount
+        if not context.args:
+            await update.message.reply_text("❌ Usage: `/slots 10`", parse_mode="Markdown")
+            return
+        
+        try:
+            bet_amount = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid bet amount")
+            return
+        
+        # Validate bet
+        valid, msg = economy.validate_bet(bet_amount)
+        if not valid:
+            await update.message.reply_text(msg)
+            return
+        
+        # Check balance
+        current_balance = economy.get_balance(user_id)
+        if current_balance < bet_amount:
+            await update.message.reply_text(f"❌ You only have {current_balance} coins! Bet less.")
+            return
+        
+        # Play game
+        result = gambling_games.slots(bet_amount)
+        
+        # Update balance
+        if result['won']:
+            economy.add_coins(user_id, result['coins_won'], f"Slots win: +{result['coins_won']}")
+        else:
+            economy.remove_coins(user_id, bet_amount, f"Slots loss: -{bet_amount}")
+        
+        save_data(bot_data)
+        new_balance = economy.get_balance(user_id)
+        
+        game_msg = f"""
+🎰 **SLOT MACHINE**
+
+{result['display']}
+
+{result['result']}
+
+💰 New Balance: **{new_balance}** coins
+        """
+        await update.message.reply_text(game_msg, parse_mode="Markdown")
+        logger.info(f"🎰 {user_id} played slots: {bet_amount} coins, Won: {result['won']}")
+    except Exception as e:
+        logger.error(f"Slots error: {e}")
+        await update.message.reply_text("❌ Error playing slots")
+
+@user_tracking
+@rate_limit(cooldown_type="command", cooldown_seconds=2)
+async def dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Dice gambling game."""
+    try:
+        user_id = update.effective_user.id
+        
+        # Parse bet amount
+        if not context.args:
+            await update.message.reply_text("❌ Usage: `/dicegame 10`", parse_mode="Markdown")
+            return
+        
+        try:
+            bet_amount = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid bet amount")
+            return
+        
+        # Validate bet
+        valid, msg = economy.validate_bet(bet_amount)
+        if not valid:
+            await update.message.reply_text(msg)
+            return
+        
+        # Check balance
+        current_balance = economy.get_balance(user_id)
+        if current_balance < bet_amount:
+            await update.message.reply_text(f"❌ You only have {current_balance} coins! Bet less.")
+            return
+        
+        # Play game
+        result = gambling_games.dice(bet_amount)
+        
+        # Update balance
+        if result['coins_won'] > 0:
+            economy.add_coins(user_id, result['coins_won'], f"Dice win: +{result['coins_won']}")
+        elif result['coins_won'] < 0:
+            economy.remove_coins(user_id, bet_amount, f"Dice loss: -{bet_amount}")
+        
+        save_data(bot_data)
+        new_balance = economy.get_balance(user_id)
+        
+        game_msg = f"""
+{result['emoji']} **DICE GAME**
+
+{result['result']}
+
+💰 New Balance: **{new_balance}** coins
+        """
+        await update.message.reply_text(game_msg, parse_mode="Markdown")
+        logger.info(f"🎲 {user_id} played dice: {bet_amount} coins, Won: {result['emoji']}")
+    except Exception as e:
+        logger.error(f"Dice error: {e}")
+        await update.message.reply_text("❌ Error playing dice")
+
+@user_tracking
+async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show top 10 richest users (leaderboard)."""
+    try:
+        top_users = economy.get_top_users(10)
+        
+        if not top_users:
+            await update.message.reply_text("📊 No users in leaderboard yet")
+            return
+        
+        leaderboard = "🏆 **RICHEST USERS LEADERBOARD**\n\n"
+        for idx, (user_id, balance) in enumerate(top_users, 1):
+            medal = ["🥇", "🥈", "🥉"]
+            medal_emoji = medal[idx-1] if idx <= 3 else f"{idx}️⃣"
+            leaderboard += f"{medal_emoji} **#{idx}** - User {user_id}: **{balance}** coins\n"
+        
+        leaderboard += "\n💰 Climb the ranks and become the richest!"
+        
+        await update.message.reply_text(leaderboard, parse_mode="Markdown")
+        logger.info(f"📊 {update.effective_user.id} viewed leaderboard")
+    except Exception as e:
+        logger.error(f"Leaderboard error: {e}")
+        await update.message.reply_text("❌ Error retrieving leaderboard")
+
+# Admin Economy Commands
+
+async def addcoins_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command to add coins to a user."""
+    await admin_economy.addcoins(update, context, economy)
+    save_data(bot_data)
+
+async def removecoins_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command to remove coins from a user."""
+    await admin_economy.removecoins(update, context, economy)
+    save_data(bot_data)
+
+async def setcoins_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command to set a user's coin balance."""
+    await admin_economy.setcoins(update, context, economy)
+    save_data(bot_data)
+
 @rate_limit(cooldown_type="command", cooldown_seconds=0)
 @user_tracking
 @admin_only
@@ -2498,6 +2817,17 @@ def setup_bot():
     app.add_handler(CommandHandler("sleep", sleep_cmd))
     app.add_handler(CommandHandler("goodmorning", goodmorning_cmd))
     app.add_handler(CommandHandler("goodnight", goodnight_cmd))
+    
+    # Economy Commands
+    app.add_handler(CommandHandler("balance", balance))
+    app.add_handler(CommandHandler("daily", daily))
+    app.add_handler(CommandHandler("coinflip", coinflip))
+    app.add_handler(CommandHandler("slots", slots))
+    app.add_handler(CommandHandler("dicegame", dice_game))
+    app.add_handler(CommandHandler("top", top))
+    app.add_handler(CommandHandler("addcoins", addcoins_cmd))
+    app.add_handler(CommandHandler("removecoins", removecoins_cmd))
+    app.add_handler(CommandHandler("setcoins", setcoins_cmd))
     
     # Messages (must be last)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
