@@ -3,11 +3,12 @@
 Advanced Telegram Bot with AI Integration & Premium Features
 """
 
-from telegram import Update, ChatPermissions
+from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
     CommandHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters
 )
@@ -31,6 +32,20 @@ import os
 
 from economy import Economy
 from gambling import GamblingGames
+from blackjack import (
+    BlackjackGame,
+    BlackjackTracker,
+    is_player_playing,
+    start_new_game,
+    end_game,
+    has_cooldown,
+    set_cooldown,
+    ACTIVE_GAMES,
+    format_blackjack_board,
+    format_result_message,
+    get_blackjack_buttons,
+    get_flavor_message
+)
 from ui_animations import (
     format_result,
     format_balance_card,
@@ -119,6 +134,7 @@ bot_data = load_data()
 # Initialize economy system
 economy = Economy(bot_data)
 gambling_games = GamblingGames()
+blackjack_tracker = BlackjackTracker(bot_data)
 
 logger.info("✅ Economy system initialized")
 logger.info(f"💰 Loaded balances for {len(bot_data.get('economy', {}))} users")
@@ -2026,6 +2042,480 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Leaderboard error: {e}")
         await update.message.reply_text(error_msg("Could not retrieve leaderboard"))
 
+# =========================
+# BLACKJACK GAME COMMANDS
+# =========================
+
+@user_tracking
+@rate_limit(cooldown_type="command", cooldown_seconds=1)
+async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start a blackjack game. Command: /blackjack <bet> or /bj <bet>"""
+    try:
+        user_id = update.effective_user.id
+        username = update.effective_user.first_name or "Player"
+        
+        # Check if already playing
+        if is_player_playing(user_id):
+            await update.message.reply_text(
+                "🃏 **Already in a game!**\n\n"
+                "Finish your current game before starting a new one.",
+                parse_mode="Markdown"
+            )
+            return
+        
+        # Check cooldown
+        if has_cooldown(user_id):
+            await update.message.reply_text("⏱️ Please wait before starting another game.")
+            return
+        
+        # Parse bet amount
+        if not context.args:
+            await update.message.reply_text(
+                "💰 **Usage:** `/blackjack <bet>`\n\n"
+                f"Example: `/blackjack 100`\n"
+                f"Min: {MIN_BET} | Max: {MAX_BET}",
+                parse_mode="Markdown"
+            )
+            return
+        
+        try:
+            bet_amount = int(context.args[0])
+        except ValueError:
+            await update.message.reply_text(error_msg("Invalid bet amount"))
+            return
+        
+        # Get balance
+        current_balance = economy.get_balance(user_id)
+        
+        # Validate bet
+        valid, msg = economy.validate_bet(bet_amount, current_balance)
+        if not valid:
+            await update.message.reply_text(msg)
+            return
+        
+        # Deduct bet from balance
+        economy.remove_coins(user_id, bet_amount, "Blackjack bet")
+        save_data(bot_data)
+        
+        # Start game
+        if not start_new_game(user_id, bet_amount):
+            # Refund bet if game start fails
+            economy.add_coins(user_id, bet_amount, "Blackjack refund")
+            save_data(bot_data)
+            await update.message.reply_text(error_msg("Failed to start game"))
+            return
+        
+        # Animate dealing
+        game_data = ACTIVE_GAMES[user_id]
+        game = game_data['game']
+        
+        msg_text = "🎲 Shuffling cards..."
+        game_msg = await update.message.reply_text(msg_text)
+        await asyncio.sleep(0.5)
+        
+        msg_text = "🃏 Dealing cards..."
+        await game_msg.edit_text(msg_text)
+        await asyncio.sleep(0.8)
+        
+        # Show game board
+        player_val = game_data['player_value']
+        dealer_visible = game_data['dealer_visible']
+        
+        board = format_blackjack_board(
+            game.player_hand,
+            player_val,
+            game.dealer_hand,
+            dealer_visible,
+            bet_amount,
+            show_dealer=False
+        )
+        
+        # Check for instant blackjack
+        _, player_blackjack = game.calculate_hand_value(game.player_hand)
+        
+        if player_blackjack:
+            # Player has blackjack!
+            board += "\n\n👑 **YOU HAVE BLACKJACK!**"
+            await game_msg.delete()
+            msg = await update.message.reply_text(board, parse_mode="Markdown")
+            await asyncio.sleep(1.5)
+            
+            # Dealer's turn
+            dealer_msg = f"{get_flavor_message('dealer')}\n\n"
+            await msg.edit_text(dealer_msg + "🤖 Dealer's hand:\n" + 
+                              game.format_hand(game.dealer_hand), 
+                              parse_mode="Markdown")
+            await asyncio.sleep(0.5)
+            
+            dealer_val = game.dealer_play()
+            dealer_blackjack = len(game.dealer_hand) == 2 and dealer_val == 21
+            
+            # Determine result
+            result = game.get_game_result(21, dealer_val, 2, len(game.dealer_hand))
+            
+            # Calculate payout
+            if result == 'BLACKJACK':
+                payout = int(bet_amount * 2.5)
+            elif result == 'PUSH':
+                payout = bet_amount  # Refund
+            else:
+                payout = 0
+            
+            # Update balance
+            new_balance = economy.get_balance(user_id)
+            economy.add_coins(user_id, payout, f"Blackjack {result}")
+            new_balance = economy.get_balance(user_id)
+            
+            # Track result
+            blackjack_tracker.add_game_result(user_id, result, bet_amount, payout)
+            save_data(bot_data)
+            
+            # Show result
+            result_msg = format_result_message(
+                result, 21, dealer_val,
+                bet_amount, payout,
+                current_balance, new_balance
+            )
+            
+            await msg.edit_text(result_msg, parse_mode="Markdown")
+            end_game(user_id)
+            set_cooldown(user_id)
+            logger.info(f"🎴 {user_id} played blackjack: {bet_amount}, Result: {result} (instant)")
+            return
+        
+        # Regular play - show buttons
+        await game_msg.delete()
+        msg = await update.message.reply_text(
+            board,
+            parse_mode="Markdown",
+            reply_markup=get_blackjack_buttons()
+        )
+        
+        # Store message ID for editing later
+        game_data['message_id'] = msg.message_id
+        logger.info(f"🎴 {user_id} started blackjack: bet {bet_amount}")
+        
+    except Exception as e:
+        logger.error(f"❌ Blackjack start error: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await update.message.reply_text(error_msg("Game error"))
+
+
+async def blackjack_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle blackjack button presses."""
+    try:
+        query = update.callback_query
+        user_id = query.from_user.id
+        
+        if user_id not in ACTIVE_GAMES:
+            await query.answer("❌ No active game")
+            return
+        
+        await query.answer()
+        
+        game_data = ACTIVE_GAMES[user_id]
+        game = game_data['game']
+        bet_amount = game_data['bet']
+        
+        action = query.data
+        
+        # Handle actions
+        if action == "bj_hit":
+            await handle_hit(query, game_data, game, bet_amount, user_id)
+        elif action == "bj_stand":
+            await handle_stand(query, game_data, game, bet_amount, user_id)
+        elif action == "bj_double":
+            await handle_double(query, game_data, game, bet_amount, user_id)
+        elif action == "bj_surrender":
+            await handle_surrender(query, game_data, game, bet_amount, user_id)
+        
+    except Exception as e:
+        logger.error(f"❌ Blackjack callback error: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        try:
+            await query.answer("❌ Error processing action")
+        except:
+            pass
+
+
+async def handle_hit(query, game_data, game, bet_amount, user_id):
+    """Handle Hit action."""
+    try:
+        # Player hits
+        player_val, bust = game.hit(is_player=True)
+        game_data['player_value'] = player_val
+        
+        # Update board
+        board = format_blackjack_board(
+            game.player_hand,
+            player_val,
+            game.dealer_hand,
+            game_data['dealer_visible'],
+            bet_amount,
+            show_dealer=False
+        )
+        
+        if bust:
+            # Player busted!
+            board += "\n\n💥 **YOU BUSTED!**"
+            await query.edit_message_text(board, parse_mode="Markdown", reply_markup=None)
+            await asyncio.sleep(1.5)
+            
+            # Process loss
+            current_balance = economy.get_balance(user_id)
+            economy.remove_coins(user_id, bet_amount, "Blackjack loss")
+            new_balance = economy.get_balance(user_id)
+            
+            blackjack_tracker.add_game_result(user_id, 'LOSE', bet_amount, 0)
+            save_data(bot_data)
+            
+            result_msg = format_result_message(
+                'LOSE', player_val, 0,
+                bet_amount, 0,
+                current_balance, new_balance
+            )
+            
+            await query.edit_message_text(result_msg, parse_mode="Markdown")
+            end_game(user_id)
+            set_cooldown(user_id)
+            logger.info(f"🎴 {user_id} busted at {player_val}")
+            return
+        
+        # Update buttons
+        await query.edit_message_text(
+            board,
+            parse_mode="Markdown",
+            reply_markup=get_blackjack_buttons()
+        )
+        
+    except Exception as e:
+        logger.error(f"Hit error: {e}")
+        await query.answer("Error processing hit")
+
+
+async def handle_stand(query, game_data, game, bet_amount, user_id):
+    """Handle Stand action."""
+    try:
+        current_balance = economy.get_balance(user_id)
+        
+        # Show dealer animation
+        board = format_blackjack_board(
+            game.player_hand,
+            game_data['player_value'],
+            game.dealer_hand,
+            0,  # Not showing yet
+            bet_amount,
+            show_dealer=False
+        )
+        
+        board += f"\n\n{get_flavor_message('dealer')}"
+        await query.edit_message_text(board, parse_mode="Markdown", reply_markup=None)
+        await asyncio.sleep(0.8)
+        
+        # Dealer reveals
+        dealer_visible, _ = game.calculate_hand_value(game.dealer_hand)
+        board = format_blackjack_board(
+            game.player_hand,
+            game_data['player_value'],
+            game.dealer_hand,
+            dealer_visible,
+            bet_amount,
+            show_dealer=True
+        )
+        
+        await query.edit_message_text(board, parse_mode="Markdown")
+        await asyncio.sleep(0.5)
+        
+        # Dealer plays
+        dealer_val = game.dealer_play()
+        
+        # Determine result
+        result = game.get_game_result(
+            game_data['player_value'],
+            dealer_val,
+            len(game.player_hand),
+            len(game.dealer_hand)
+        )
+        
+        # Calculate payout
+        if result == 'BLACKJACK':
+            payout = int(bet_amount * 2.5)
+        elif result == 'WIN':
+            payout = bet_amount * 2
+        elif result == 'PUSH':
+            payout = bet_amount
+        else:
+            payout = 0
+        
+        # Update balance
+        economy.add_coins(user_id, payout, f"Blackjack {result}")
+        new_balance = economy.get_balance(user_id)
+        
+        # Track result
+        blackjack_tracker.add_game_result(user_id, result, bet_amount, payout)
+        save_data(bot_data)
+        
+        # Show result
+        result_msg = format_result_message(
+            result,
+            game_data['player_value'],
+            dealer_val,
+            bet_amount,
+            payout,
+            current_balance,
+            new_balance
+        )
+        
+        await query.edit_message_text(result_msg, parse_mode="Markdown")
+        end_game(user_id)
+        set_cooldown(user_id)
+        logger.info(f"🎴 {user_id} stood at {game_data['player_value']}, Result: {result}")
+        
+    except Exception as e:
+        logger.error(f"Stand error: {e}")
+        await query.answer("Error processing stand")
+
+
+async def handle_double(query, game_data, game, bet_amount, user_id):
+    """Handle Double Down action."""
+    try:
+        # Check if they can afford to double
+        current_balance = economy.get_balance(user_id)
+        
+        if current_balance < bet_amount:
+            await query.answer("💰 Not enough coins to double", show_alert=True)
+            return
+        
+        # Deduct double amount
+        economy.remove_coins(user_id, bet_amount, "Blackjack double")
+        save_data(bot_data)
+        
+        # Update bet
+        new_bet = bet_amount * 2
+        game_data['bet'] = new_bet
+        game_data['doubled'] = True
+        
+        # Draw one more card
+        player_val, bust = game.double_down()
+        game_data['player_value'] = player_val
+        
+        board = format_blackjack_board(
+            game.player_hand,
+            player_val,
+            game.dealer_hand,
+            game_data['dealer_visible'],
+            new_bet,
+            show_dealer=False
+        )
+        
+        board += "\n\n💰 **BET DOUBLED!**"
+        await query.edit_message_text(board, parse_mode="Markdown", reply_markup=None)
+        await asyncio.sleep(1)
+        
+        # Automatic stand after double
+        current_balance = economy.get_balance(user_id)
+        
+        # Dealer animation
+        board = format_blackjack_board(
+            game.player_hand,
+            player_val,
+            game.dealer_hand,
+            0,
+            new_bet,
+            show_dealer=False
+        )
+        board += f"\n\n{get_flavor_message('dealer')}"
+        await query.edit_message_text(board, parse_mode="Markdown")
+        await asyncio.sleep(0.8)
+        
+        # Dealer plays
+        dealer_val = game.dealer_play()
+        
+        # Determine result
+        result = game.get_game_result(
+            player_val,
+            dealer_val,
+            len(game.player_hand),
+            len(game.dealer_hand)
+        )
+        
+        # Calculate payout
+        if result == 'WIN':
+            payout = new_bet * 2
+        elif result == 'PUSH':
+            payout = new_bet
+        else:
+            payout = 0
+        
+        # Update balance
+        economy.add_coins(user_id, payout, f"Blackjack {result} (doubled)")
+        new_balance = economy.get_balance(user_id)
+        
+        # Track result
+        blackjack_tracker.add_game_result(user_id, result, new_bet, payout)
+        save_data(bot_data)
+        
+        # Show result
+        result_msg = format_result_message(
+            result,
+            player_val,
+            dealer_val,
+            new_bet,
+            payout,
+            current_balance,
+            new_balance
+        )
+        
+        await query.edit_message_text(result_msg, parse_mode="Markdown")
+        end_game(user_id)
+        set_cooldown(user_id)
+        logger.info(f"🎴 {user_id} doubled down, Result: {result}")
+        
+    except Exception as e:
+        logger.error(f"Double error: {e}")
+        await query.answer("Error processing double")
+
+
+async def handle_surrender(query, game_data, game, bet_amount, user_id):
+    """Handle Surrender action."""
+    try:
+        current_balance = economy.get_balance(user_id)
+        
+        # Surrender returns half the bet
+        half_bet = bet_amount // 2
+        
+        # Update balance
+        economy.add_coins(user_id, half_bet, "Blackjack surrender")
+        new_balance = economy.get_balance(user_id)
+        
+        # Track as loss
+        blackjack_tracker.add_game_result(user_id, 'LOSE', bet_amount, half_bet)
+        save_data(bot_data)
+        
+        # Show surrender message
+        msg = f"""
+━━━━━━━━━━━━━━━━━━
+🏳️ **YOU SURRENDERED**
+
+You gave up this hand.
+
+💰 **Refund:** {half_bet} coins
+💵 **Balance:** {current_balance} → {new_balance}
+━━━━━━━━━━━━━━━━━━
+        """.strip()
+        
+        await query.edit_message_text(msg, parse_mode="Markdown")
+        end_game(user_id)
+        set_cooldown(user_id)
+        logger.info(f"🎴 {user_id} surrendered")
+        
+    except Exception as e:
+        logger.error(f"Surrender error: {e}")
+        await query.answer("Error processing surrender")
+
+
 # Admin Economy Commands
 
 async def addcoins_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2844,6 +3334,13 @@ def setup_bot():
     app.add_handler(CommandHandler("addcoins", addcoins_cmd))
     app.add_handler(CommandHandler("removecoins", removecoins_cmd))
     app.add_handler(CommandHandler("setcoins", setcoins_cmd))
+    
+    # Blackjack Commands
+    app.add_handler(CommandHandler("blackjack", blackjack_start))
+    app.add_handler(CommandHandler("bj", blackjack_start))
+    
+    # Callback handlers (for buttons)
+    app.add_handler(CallbackQueryHandler(blackjack_callback, pattern="^bj_"))
     
     # Messages (must be last)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
