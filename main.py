@@ -31,6 +31,17 @@ import os
 
 from economy import Economy
 from gambling import GamblingGames
+from ui_animations import (
+    format_result,
+    format_balance_card,
+    format_daily_reward,
+    format_leaderboard,
+    error_msg,
+    success_msg,
+    animate_coin_flip,
+    animate_slots,
+    animate_dice_roll
+)
 import admin_economy
 
 # =========================
@@ -1764,37 +1775,38 @@ async def ataturk(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @user_tracking
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show user's coin balance."""
+    """Show user's coin balance with beautiful formatting."""
     try:
         user_id = update.effective_user.id
         user = update.effective_user
         coins = economy.get_balance(user_id)
         
-        balance_msg = f"""
-💰 **YOUR BALANCE**
+        # Format balance card
+        card = format_balance_card(coins, user.first_name or "Player")
+        
+        full_msg = f"""{card}
 
-👤 User: {user.first_name}
-🪙 Coins: **{coins}**
+⚠️ **DISCLAIMER**: Virtual currency only!
+No real money, crypto, or withdrawals.
+Pure entertainment! 🎮
 
-⚠️ **DISCLAIMER**: This system uses VIRTUAL currency only. 
-No real money, crypto, or real-world value. For entertainment only.
-
-🎮 Try your luck:
-• `/coinflip 10` - Double or nothing (50/50)
-• `/slots 10` - Spin the slots
-• `/dice 10` - Roll the dice
-• `/daily` - Claim free coins every 24h
+**Quick Games:**
+• `/coinflip 10` - Win 2x or lose
+• `/slots 10` - Spin & win
+• `/dicegame 10` - Roll vs bot
+• `/daily` - Free coins (24h)
+• `/top` - Leaderboard
         """
-        await update.message.reply_text(balance_msg, parse_mode="Markdown")
+        await update.message.reply_text(full_msg, parse_mode="Markdown")
         logger.info(f"💰 {user_id} checked balance: {coins} coins")
     except Exception as e:
         logger.error(f"Balance error: {e}")
-        await update.message.reply_text("❌ Error retrieving balance")
+        await update.message.reply_text(error_msg("Could not retrieve balance"))
 
 @user_tracking
 @rate_limit(cooldown_type="command", cooldown_seconds=2)
 async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Claim daily free coins."""
+    """Claim daily free coins - beautiful UI."""
     try:
         user_id = update.effective_user.id
         
@@ -1803,212 +1815,216 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if success:
             new_balance = economy.get_balance(user_id)
-            daily_msg = f"""
-🎁 **DAILY REWARD CLAIMED**
-
-✅ Gained: **+{coins_gained}** coins
-💰 New Balance: **{new_balance}** coins
-
-Come back tomorrow for more! 🌅
-            """
+            daily_msg = format_daily_reward(coins_gained)
+            daily_msg += f"\n\n💰 New Balance: **{new_balance}** coins"
             await update.message.reply_text(daily_msg, parse_mode="Markdown")
             logger.info(f"🎁 {user_id} claimed daily reward")
         else:
             await update.message.reply_text(msg)
     except Exception as e:
         logger.error(f"Daily error: {e}")
-        await update.message.reply_text("❌ Error claiming daily reward")
+        await update.message.reply_text(error_msg("Could not claim reward"))
 
 @user_tracking
 @rate_limit(cooldown_type="command", cooldown_seconds=2)
 async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Coinflip gambling game."""
+    """Coinflip game with animation."""
     try:
         user_id = update.effective_user.id
         
         # Parse bet amount
         if not context.args:
-            await update.message.reply_text("❌ Usage: `/coinflip 10`", parse_mode="Markdown")
+            await update.message.reply_text(error_msg("Usage: /coinflip 10"), parse_mode="Markdown")
             return
         
         try:
             bet_amount = int(context.args[0])
         except ValueError:
-            await update.message.reply_text("❌ Invalid bet amount")
+            await update.message.reply_text(error_msg("Invalid amount"))
             return
         
+        current_balance = economy.get_balance(user_id)
+        
         # Validate bet
-        valid, msg = economy.validate_bet(bet_amount)
+        valid, msg = economy.validate_bet(bet_amount, current_balance)
         if not valid:
             await update.message.reply_text(msg)
             return
         
-        # Check balance
-        current_balance = economy.get_balance(user_id)
-        if current_balance < bet_amount:
-            await update.message.reply_text(f"❌ You only have {current_balance} coins! Bet less.")
-            return
+        # Show animation
+        anim_msg = await update.message.reply_text("🪙 Flipping coin...")
+        await asyncio.sleep(0.3)
+        await anim_msg.edit_text("🪙 Flipping coin .")
+        await asyncio.sleep(0.2)
+        await anim_msg.edit_text("🪙 Flipping coin ..")
+        await asyncio.sleep(0.2)
+        await anim_msg.edit_text("🪙 Flipping coin ...")
+        await asyncio.sleep(0.4)
         
         # Play game
         result = gambling_games.coinflip(bet_amount)
         
         # Update balance
         if result['won']:
-            economy.add_coins(user_id, result['coins_won'], f"Coinflip win: +{result['coins_won']}")
+            economy.add_coins(user_id, result['coins_won'], "Coinflip win")
         else:
-            economy.remove_coins(user_id, bet_amount, f"Coinflip loss: -{bet_amount}")
+            economy.remove_coins(user_id, bet_amount, "Coinflip loss")
         
         save_data(bot_data)
         new_balance = economy.get_balance(user_id)
         
-        game_msg = f"""
-{result['emoji']} **COINFLIP**
-
-{result['result']}
-
-💰 New Balance: **{new_balance}** coins
-        """
+        # Format result
+        game_msg = format_result("COINFLIP", result)
+        game_msg += f"\n\n━━━━━━━━━━━━━━━━━\n💰 Balance: **{current_balance}** → **{new_balance}**\n━━━━━━━━━━━━━━━━━"
+        
+        await anim_msg.delete()
         await update.message.reply_text(game_msg, parse_mode="Markdown")
-        logger.info(f"🪙 {user_id} played coinflip: {bet_amount} coins, Won: {result['won']}")
+        logger.info(f"🪙 {user_id} played coinflip: {bet_amount}, Won: {result['won']}")
     except Exception as e:
         logger.error(f"Coinflip error: {e}")
-        await update.message.reply_text("❌ Error playing coinflip")
+        await update.message.reply_text(error_msg("Game error"))
 
 @user_tracking
 @rate_limit(cooldown_type="command", cooldown_seconds=2)
 async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Slot machine gambling game."""
+    """Slot machine gambling game with animation."""
     try:
         user_id = update.effective_user.id
         
         # Parse bet amount
         if not context.args:
-            await update.message.reply_text("❌ Usage: `/slots 10`", parse_mode="Markdown")
+            await update.message.reply_text(error_msg("Usage: /slots 100"), parse_mode="Markdown")
             return
         
         try:
             bet_amount = int(context.args[0])
         except ValueError:
-            await update.message.reply_text("❌ Invalid bet amount")
+            await update.message.reply_text(error_msg("Invalid amount"))
             return
         
+        current_balance = economy.get_balance(user_id)
+        
         # Validate bet
-        valid, msg = economy.validate_bet(bet_amount)
+        valid, msg = economy.validate_bet(bet_amount, current_balance)
         if not valid:
             await update.message.reply_text(msg)
             return
         
-        # Check balance
-        current_balance = economy.get_balance(user_id)
-        if current_balance < bet_amount:
-            await update.message.reply_text(f"❌ You only have {current_balance} coins! Bet less.")
-            return
+        # Show animation
+        anim_msg = await update.message.reply_text("🎰 Spinning...")
+        animations = [
+            "🎰 [🍎] [🍊] [🍋]",
+            "🎰 [🍊] [🍋] [🍌]",
+            "🎰 [🍋] [🍌] [🍉]",
+            "🎰 [🍌] [🍉] [💎]",
+        ]
+        
+        for anim in animations:
+            await anim_msg.edit_text(anim)
+            await asyncio.sleep(0.2)
+        
+        await asyncio.sleep(0.4)
         
         # Play game
         result = gambling_games.slots(bet_amount)
         
         # Update balance
         if result['won']:
-            economy.add_coins(user_id, result['coins_won'], f"Slots win: +{result['coins_won']}")
+            economy.add_coins(user_id, result['coins_won'], "Slots win")
         else:
-            economy.remove_coins(user_id, bet_amount, f"Slots loss: -{bet_amount}")
+            economy.remove_coins(user_id, bet_amount, "Slots loss")
         
         save_data(bot_data)
         new_balance = economy.get_balance(user_id)
         
-        game_msg = f"""
-🎰 **SLOT MACHINE**
-
-{result['display']}
-
-{result['result']}
-
-💰 New Balance: **{new_balance}** coins
-        """
+        # Format result
+        game_msg = format_result("SLOTS", result)
+        game_msg += f"\n{result['display']}\n\n━━━━━━━━━━━━━━━━━\n💰 Balance: **{current_balance}** → **{new_balance}**\n━━━━━━━━━━━━━━━━━"
+        
+        await anim_msg.delete()
         await update.message.reply_text(game_msg, parse_mode="Markdown")
-        logger.info(f"🎰 {user_id} played slots: {bet_amount} coins, Won: {result['won']}")
+        logger.info(f"🎰 {user_id} played slots: {bet_amount}, Won: {result['won']}")
     except Exception as e:
         logger.error(f"Slots error: {e}")
-        await update.message.reply_text("❌ Error playing slots")
+        await update.message.reply_text(error_msg("Game error"))
 
 @user_tracking
 @rate_limit(cooldown_type="command", cooldown_seconds=2)
 async def dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Dice gambling game."""
+    """Dice gambling game with animation."""
     try:
         user_id = update.effective_user.id
         
         # Parse bet amount
         if not context.args:
-            await update.message.reply_text("❌ Usage: `/dicegame 10`", parse_mode="Markdown")
+            await update.message.reply_text(error_msg("Usage: /dicegame 100"), parse_mode="Markdown")
             return
         
         try:
             bet_amount = int(context.args[0])
         except ValueError:
-            await update.message.reply_text("❌ Invalid bet amount")
+            await update.message.reply_text(error_msg("Invalid amount"))
             return
         
+        current_balance = economy.get_balance(user_id)
+        
         # Validate bet
-        valid, msg = economy.validate_bet(bet_amount)
+        valid, msg = economy.validate_bet(bet_amount, current_balance)
         if not valid:
             await update.message.reply_text(msg)
             return
         
-        # Check balance
-        current_balance = economy.get_balance(user_id)
-        if current_balance < bet_amount:
-            await update.message.reply_text(f"❌ You only have {current_balance} coins! Bet less.")
-            return
+        # Show animation
+        anim_msg = await update.message.reply_text("🎲 Rolling...")
+        
+        for i in range(1, 7):
+            await anim_msg.edit_text(f"🎲 Rolling... {i}")
+            await asyncio.sleep(0.1)
+        
+        await asyncio.sleep(0.4)
         
         # Play game
         result = gambling_games.dice(bet_amount)
         
         # Update balance
         if result['coins_won'] > 0:
-            economy.add_coins(user_id, result['coins_won'], f"Dice win: +{result['coins_won']}")
+            economy.add_coins(user_id, result['coins_won'], "Dice win")
         elif result['coins_won'] < 0:
-            economy.remove_coins(user_id, bet_amount, f"Dice loss: -{bet_amount}")
+            economy.remove_coins(user_id, bet_amount, "Dice loss")
         
         save_data(bot_data)
         new_balance = economy.get_balance(user_id)
         
-        game_msg = f"""
-{result['emoji']} **DICE GAME**
-
-{result['result']}
-
-💰 New Balance: **{new_balance}** coins
-        """
+        # Format result
+        game_msg = format_result("DICE", result)
+        game_msg += f"\n{result['emoji']} {result['result']}\n\n━━━━━━━━━━━━━━━━━\n💰 Balance: **{current_balance}** → **{new_balance}**\n━━━━━━━━━━━━━━━━━"
+        
+        await anim_msg.delete()
         await update.message.reply_text(game_msg, parse_mode="Markdown")
-        logger.info(f"🎲 {user_id} played dice: {bet_amount} coins, Won: {result['emoji']}")
+        logger.info(f"🎲 {user_id} played dice: {bet_amount}, Won: {result['coins_won'] > 0}")
     except Exception as e:
         logger.error(f"Dice error: {e}")
-        await update.message.reply_text("❌ Error playing dice")
+        await update.message.reply_text(error_msg("Game error"))
 
 @user_tracking
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show top 10 richest users (leaderboard)."""
+    """Show top 10 richest users with beautiful formatting."""
     try:
         top_users = economy.get_top_users(10)
         
         if not top_users:
-            await update.message.reply_text("📊 No users in leaderboard yet")
+            await update.message.reply_text(error_msg("No users yet - Be first!"))
             return
         
-        leaderboard = "🏆 **RICHEST USERS LEADERBOARD**\n\n"
-        for idx, (user_id, balance) in enumerate(top_users, 1):
-            medal = ["🥇", "🥈", "🥉"]
-            medal_emoji = medal[idx-1] if idx <= 3 else f"{idx}️⃣"
-            leaderboard += f"{medal_emoji} **#{idx}** - User {user_id}: **{balance}** coins\n"
-        
-        leaderboard += "\n💰 Climb the ranks and become the richest!"
+        # Use formatted leaderboard
+        leaderboard = format_leaderboard(top_users)
+        leaderboard += "\n\n💰 **Play to climb the ranks!**"
         
         await update.message.reply_text(leaderboard, parse_mode="Markdown")
         logger.info(f"📊 {update.effective_user.id} viewed leaderboard")
     except Exception as e:
         logger.error(f"Leaderboard error: {e}")
-        await update.message.reply_text("❌ Error retrieving leaderboard")
+        await update.message.reply_text(error_msg("Could not retrieve leaderboard"))
 
 # Admin Economy Commands
 

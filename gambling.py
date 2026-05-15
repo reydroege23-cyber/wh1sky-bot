@@ -1,7 +1,14 @@
 """
-Gambling Games for Whisky_bot
-Implements coinflip, slots, and dice games
-⚠️ VIRTUAL CURRENCY ONLY - NO REAL MONEY VALUE
+🎰 GAMBLING GAMES MODULE
+Simple fun games for virtual coins
+
+GAMES:
+- coinflip() → 50/50 double or lose
+- slots() → Spin the machine
+- dice() → Roll vs bot
+- scratch_card() → Hidden prize card
+
+⚠️ VIRTUAL COINS ONLY - Entertainment!
 """
 
 import logging
@@ -19,40 +26,60 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
+
 class GamblingGames:
-    """Handles all gambling game logic."""
+    """
+    Fun gambling games for entertainment.
+    
+    All games return dicts with:
+    - won: True/False
+    - result: Message to show
+    - coins_won: +/- coins
+    """
     
     @staticmethod
     def coinflip(bet_amount: int) -> dict:
         """
-        Coinflip game: 50/50 win or lose
-        Returns: {'won': bool, 'result': str, 'coins_won': int, 'emoji': str}
+        Simple coin flip: 50/50 chance to win.
+        
+        Win: Double your coins (2x multiplier)
+        Lose: Lose your bet
+        
+        Returns: {'won': bool, 'result': str, 'coins_won': int}
         """
         won = random.randint(1, 100) <= COINFLIP_ODDS
         
         if won:
+            # Calculate winnings
             coins_won = int(bet_amount * COINFLIP_MULTIPLIER)
+            
             return {
                 'won': True,
                 'result': f"🪙 **HEADS!** You won {coins_won} coins!",
                 'coins_won': coins_won,
-                'emoji': '🪙'
+                'emoji': '🎉'
             }
         else:
+            # You lose
             return {
                 'won': False,
                 'result': f"🪙 **TAILS!** You lost {bet_amount} coins!",
                 'coins_won': -bet_amount,
-                'emoji': '💔'
+                'emoji': '😢'
             }
     
     @staticmethod
     def slots(bet_amount: int) -> dict:
         """
-        Slot machine game with jackpot possibility
+        Slot machine: Spin 3 reels.
+        
+        Jackpot (2%): All 3 match → 10x multiplier
+        Win (30%): 2 match → 1.5x multiplier
+        Loss: No match → lose bet
+        
         Returns: {'won': bool, 'result': str, 'coins_won': int, 'display': str}
         """
-        # Symbols for slots
+        # Slot symbols
         symbols = ['🍎', '🍊', '🍋', '🍌', '🍉', '💎', '🎰', '⭐']
         
         # Spin 3 reels
@@ -60,34 +87,35 @@ class GamblingGames:
         reel2 = random.choice(symbols)
         reel3 = random.choice(symbols)
         
+        # Show reels
         display = f"🎰 [{reel1}] [{reel2}] [{reel3}]"
         
-        # Check for jackpot (all 3 match)
+        # Check for JACKPOT (all 3 same)
         if reel1 == reel2 == reel3:
             if random.random() < SLOTS_JACKPOT_CHANCE:
                 coins_won = int(bet_amount * SLOTS_JACKPOT_MULTIPLIER)
                 return {
                     'won': True,
-                    'result': f"🎰 **JACKPOT!!!** Triple {reel1}! Won {coins_won} coins!",
+                    'result': f"🎰 **JACKPOT!!!** 🏆 Triple {reel1}!\nWon **{coins_won}** coins!",
                     'coins_won': coins_won,
                     'display': display
                 }
         
-        # Check for regular win (2 matching symbols)
-        if reel1 == reel2 or reel2 == reel3 or reel1 == reel3:
+        # Check for WIN (any 2 match)
+        if (reel1 == reel2) or (reel2 == reel3) or (reel1 == reel3):
             if random.random() < SLOTS_WIN_CHANCE:
                 coins_won = int(bet_amount * SLOTS_WIN_MULTIPLIER)
                 return {
                     'won': True,
-                    'result': f"🎰 **WIN!** Matched symbols! Won {coins_won} coins!",
+                    'result': f"🎰 **WIN!** Matched symbols!\nWon **{coins_won}** coins!",
                     'coins_won': coins_won,
                     'display': display
                 }
         
-        # No win
+        # NO MATCH - You lose
         return {
             'won': False,
-            'result': f"🎰 **NO MATCH!** Lost {bet_amount} coins!",
+            'result': f"🎰 **NO MATCH!** Better luck next time.\nLost **{bet_amount}** coins!",
             'coins_won': -bet_amount,
             'display': display
         }
@@ -95,46 +123,43 @@ class GamblingGames:
     @staticmethod
     def dice(bet_amount: int) -> dict:
         """
-        Dice game: Roll vs bot
+        Dice duel: Your roll vs bot roll.
+        
+        Your roll > Bot roll: Win (1.8x multiplier)
+        Your roll < Bot roll: Lose
+        Tie: No change
+        
         Returns: {'won': bool, 'result': str, 'coins_won': int}
         """
-        player_roll = random.randint(1, 6)
+        your_roll = random.randint(1, 6)
         bot_roll = random.randint(1, 6)
         
-        if player_roll > bot_roll:
+        if your_roll > bot_roll:
+            # You win!
             coins_won = int(bet_amount * DICE_WIN_MULTIPLIER)
             return {
                 'won': True,
-                'result': f"🎲 You rolled **{player_roll}**, bot rolled **{bot_roll}**\n✅ You won {coins_won} coins!",
+                'result': f"🎲 You: **{your_roll}** | Bot: **{bot_roll}**\n✅ You won **{coins_won}** coins!",
                 'coins_won': coins_won,
-                'emoji': '✅'
+                'emoji': '🎉'
             }
-        elif player_roll < bot_roll:
+        
+        elif your_roll < bot_roll:
+            # Bot wins
             return {
                 'won': False,
-                'result': f"🎲 You rolled **{player_roll}**, bot rolled **{bot_roll}**\n❌ Bot wins! Lost {bet_amount} coins!",
+                'result': f"�️ **SCRATCH CARD!**\n{label}\nLost **{bet_amount}** coins!",
                 'coins_won': -bet_amount,
-                'emoji': '❌'
+                'emoji': '😢'
             }
-        else:
-            return {
-                'won': False,
-                'result': f"🎲 You rolled **{player_roll}**, bot rolled **{bot_roll}**\n🤝 It's a tie! No coins lost or gained!",
-                'coins_won': 0,
-                'emoji': '🤝'
-            }
-    
-    @staticmethod
-    def scratch_card(bet_amount: int) -> dict:
-        """
-        Scratch card game: hidden prizes
-        Returns: {'won': bool, 'result': str, 'coins_won': int}
-        """
-        prizes = [
-            (0.05, 10, "🎟️ 10x Prize!"),
-            (0.15, 3, "🎟️ 3x Prize!"),
-            (0.25, 1.5, "🎟️ 1.5x Prize!"),
-            (0.55, 0, "💸 Nothing!")
+        
+        # Fallback (shouldn't reach)
+        return {
+            'won': False,
+            'result': f"🎟️ Lost **{bet_amount}** coins!",
+            'coins_won': -bet_amount,
+            'emoji': '😢'
+        }
         ]
         
         roll = random.random()
@@ -147,7 +172,7 @@ class GamblingGames:
                     coins_won = int(bet_amount * multiplier)
                     return {
                         'won': True,
-                        'result': f"🎟️ **SCRATCH!** {label} Won {coins_won} coins!",
+                        'result': f"🎟️ **SCRATCH CARD!**\n{label}\nWon **{coins_won}** coins!",
                         'coins_won': coins_won,
                         'emoji': '🎟️'
                     }

@@ -1,7 +1,14 @@
 """
-Economy System for Whisky_bot
-Manages virtual coins, balances, and economy transactions
-⚠️ VIRTUAL CURRENCY ONLY - NO REAL MONEY VALUE
+💰 ECONOMY MODULE - Virtual Coin System
+Manages user balances, transactions, and leaderboards
+
+⚠️ VIRTUAL CURRENCY ONLY - Entertainment purposes ONLY
+
+SIMPLE STRUCTURE:
+- get_balance() → Get coins
+- add_coins() → Give coins  
+- remove_coins() → Take coins
+- claim_daily() → Daily reward
 """
 
 import logging
@@ -12,26 +19,29 @@ from config import (
     MAX_BET,
     DAILY_REWARD,
     DAILY_COOLDOWN,
-    OWNER_ID
 )
-from pathlib import Path
-import json
 
 logger = logging.getLogger(__name__)
 
-# Economy data file
-ECONOMY_FILE = "economy_data.json"
 
 class Economy:
-    """Handles all economy-related operations."""
+    """
+    Simple, beginner-friendly economy system.
     
-    def __init__(self, data_dict: dict):
-        """Initialize economy system with reference to bot_data."""
-        self.bot_data = data_dict
-        self._ensure_economy_structure()
+    What it does:
+    1. Tracks coin balance for each user
+    2. Allows adding/removing coins
+    3. Handles daily rewards with cooldown
+    4. Shows top users (leaderboard)
+    """
     
-    def _ensure_economy_structure(self):
-        """Ensure economy data structure exists in bot_data."""
+    def __init__(self, bot_data: dict):
+        """Initialize with bot_data storage."""
+        self.bot_data = bot_data
+        self._ensure_structure()
+    
+    def _ensure_structure(self):
+        """Create data structures if they don't exist."""
         if "economy" not in self.bot_data:
             self.bot_data["economy"] = {}
         if "daily_claims" not in self.bot_data:
@@ -39,137 +49,171 @@ class Economy:
         if "economy_log" not in self.bot_data:
             self.bot_data["economy_log"] = []
     
+    # ========================================
+    # BALANCE OPERATIONS
+    # ========================================
+    
     def get_balance(self, user_id: int) -> int:
-        """Get user's coin balance. Returns starting balance if new user."""
+        """
+        Get user's coin balance.
+        
+        What it does:
+        - Returns coins if user exists
+        - Creates new user with STARTING_BALANCE if doesn't exist
+        """
         user_id_str = str(user_id)
+        
+        # Create new user if needed
         if user_id_str not in self.bot_data["economy"]:
             self.bot_data["economy"][user_id_str] = STARTING_BALANCE
-            self._log_transaction("ACCOUNT_CREATED", user_id, 0, STARTING_BALANCE, f"New account started with {STARTING_BALANCE} coins")
+            logger.info(f"👤 New user {user_id}: {STARTING_BALANCE} coins")
+        
         return self.bot_data["economy"][user_id_str]
     
-    def add_coins(self, user_id: int, amount: int, reason: str = "Coins added") -> tuple[bool, str]:
-        """Add coins to user's balance."""
+    def add_coins(self, user_id: int, amount: int, reason: str = "") -> bool:
+        """
+        Add coins to user.
+        
+        Returns: True if successful
+        """
         user_id_str = str(user_id)
         
         if amount < 0:
-            return False, "❌ Cannot add negative coins"
+            logger.error(f"❌ Cannot add negative coins")
+            return False
         
-        # Ensure user exists
+        # Get current balance (creates user if new)
         balance = self.get_balance(user_id)
         new_balance = balance + amount
         
+        # Update balance
         self.bot_data["economy"][user_id_str] = new_balance
-        self._log_transaction("ADD_COINS", user_id, amount, new_balance, reason)
+        self._log(user_id, amount, new_balance, reason or "Added coins")
         
-        return True, f"✅ Added {amount} coins to {user_id}"
+        return True
     
-    def remove_coins(self, user_id: int, amount: int, reason: str = "Coins removed") -> tuple[bool, str]:
-        """Remove coins from user's balance."""
+    def remove_coins(self, user_id: int, amount: int, reason: str = "") -> tuple[bool, str]:
+        """
+        Remove coins from user.
+        
+        Returns: (success, error_message)
+        """
         user_id_str = str(user_id)
         
         if amount < 0:
-            return False, "❌ Cannot remove negative coins"
+            return False, "❌ Invalid amount"
         
         balance = self.get_balance(user_id)
         
+        # Check if user has enough
         if balance < amount:
-            return False, "❌ Insufficient balance"
+            return False, f"❌ Need {amount}, you have {balance}"
         
         new_balance = balance - amount
         self.bot_data["economy"][user_id_str] = new_balance
-        self._log_transaction("REMOVE_COINS", user_id, amount, new_balance, reason)
+        self._log(user_id, -amount, new_balance, reason or "Removed coins")
         
-        return True, f"✅ Removed {amount} coins from {user_id}"
+        return True, ""
     
-    def set_coins(self, user_id: int, amount: int, reason: str = "Balance set") -> tuple[bool, str]:
-        """Set user's balance to exact amount."""
+    def set_coins(self, user_id: int, amount: int, reason: str = "") -> bool:
+        """Set exact balance (admin only)."""
         user_id_str = str(user_id)
         
         if amount < 0:
-            return False, "❌ Cannot set negative balance"
+            return False
         
-        old_balance = self.get_balance(user_id)
         self.bot_data["economy"][user_id_str] = amount
-        self._log_transaction("SET_COINS", user_id, amount - old_balance, amount, reason)
+        self._log(user_id, 0, amount, reason or "Admin set balance")
         
-        return True, f"✅ Set {user_id} balance to {amount} coins"
+        return True
     
-    def transfer_coins(self, from_user_id: int, to_user_id: int, amount: int) -> tuple[bool, str]:
-        """Transfer coins between users."""
-        # Check source has enough
-        from_balance = self.get_balance(from_user_id)
-        if from_balance < amount:
-            return False, f"❌ You only have {from_balance} coins"
-        
-        # Remove from source
-        success, msg = self.remove_coins(from_user_id, amount, f"Transferred to {to_user_id}")
-        if not success:
-            return False, msg
-        
-        # Add to recipient
-        success, msg = self.add_coins(to_user_id, amount, f"Received from {from_user_id}")
-        if not success:
-            # Rollback
-            self.add_coins(from_user_id, amount, "Transfer rollback")
-            return False, msg
-        
-        return True, f"✅ Transferred {amount} coins"
+    # ========================================
+    # VALIDATION
+    # ========================================
     
-    def validate_bet(self, amount: int) -> tuple[bool, str]:
-        """Validate bet amount."""
+    def validate_bet(self, amount: int, user_balance: int) -> tuple[bool, str]:
+        """
+        Check if bet is valid.
+        
+        Returns: (is_valid, error_message)
+        """
+        
         if amount < MIN_BET:
-            return False, f"❌ Minimum bet is {MIN_BET} coins"
+            return False, f"❌ Minimum bet: {MIN_BET}"
+        
         if amount > MAX_BET:
-            return False, f"❌ Maximum bet is {MAX_BET} coins"
-        if amount < 1:
-            return False, "❌ Bet must be positive"
+            return False, f"❌ Maximum bet: {MAX_BET}"
+        
+        if amount > user_balance:
+            return False, f"❌ You only have {user_balance}"
+        
         return True, ""
     
+    # ========================================
+    # DAILY REWARDS
+    # ========================================
+    
     def claim_daily(self, user_id: int) -> tuple[bool, str, int]:
-        """Claim daily reward. Returns (success, message, coins_gained)."""
+        """
+        Claim daily reward.
+        
+        Returns: (success, message, coins_gained)
+        """
         user_id_str = str(user_id)
-        now = datetime.now().isoformat()
+        now = datetime.now()
         
-        # Check if user already claimed today
+        # Check if already claimed today
         if user_id_str in self.bot_data["daily_claims"]:
-            last_claim = datetime.fromisoformat(self.bot_data["daily_claims"][user_id_str])
-            time_until_next = last_claim + timedelta(seconds=DAILY_COOLDOWN)
+            last_claim = datetime.fromisoformat(
+                self.bot_data["daily_claims"][user_id_str]
+            )
+            next_claim = last_claim + timedelta(seconds=DAILY_COOLDOWN)
             
-            if datetime.now() < time_until_next:
-                hours_left = int((time_until_next - datetime.now()).total_seconds() / 3600)
-                minutes_left = int(((time_until_next - datetime.now()).total_seconds() % 3600) / 60)
-                return False, f"⏱️ Daily reward available in {hours_left}h {minutes_left}m", 0
+            # Not ready yet
+            if now < next_claim:
+                hours = int((next_claim - now).total_seconds() / 3600)
+                mins = int(((next_claim - now).total_seconds() % 3600) / 60)
+                return False, f"⏱️ Available in {hours}h {mins}m", 0
         
-        # Give daily reward
-        self.bot_data["daily_claims"][user_id_str] = now
-        success, msg = self.add_coins(user_id, DAILY_REWARD, "Daily reward claimed")
+        # Give reward
+        self.bot_data["daily_claims"][user_id_str] = now.isoformat()
+        self.add_coins(user_id, DAILY_REWARD, "Daily reward")
         
         return True, f"🎁 Claimed {DAILY_REWARD} coins!", DAILY_REWARD
     
+    # ========================================
+    # LEADERBOARD
+    # ========================================
+    
     def get_top_users(self, limit: int = 10) -> list:
-        """Get richest users (leaderboard)."""
+        """Get top users by coin balance."""
         users = []
+        
         for user_id_str, balance in self.bot_data["economy"].items():
             users.append((int(user_id_str), balance))
         
-        # Sort by balance (highest first)
+        # Sort: highest coins first
         users.sort(key=lambda x: x[1], reverse=True)
+        
         return users[:limit]
     
-    def _log_transaction(self, transaction_type: str, user_id: int, amount: int, new_balance: int, reason: str = ""):
-        """Log all economy transactions."""
+    # ========================================
+    # LOGGING
+    # ========================================
+    
+    def _log(self, user_id: int, delta: int, new_balance: int, reason: str):
+        """Log transaction for debugging."""
         log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "type": transaction_type,
-            "user_id": user_id,
-            "amount": amount,
-            "new_balance": new_balance,
+            "time": datetime.now().isoformat(),
+            "user": user_id,
+            "delta": delta,
+            "balance": new_balance,
             "reason": reason
         }
         self.bot_data["economy_log"].append(log_entry)
         
-        # Keep last 1000 transactions to prevent huge logs
-        if len(self.bot_data["economy_log"]) > 1000:
-            self.bot_data["economy_log"] = self.bot_data["economy_log"][-1000:]
+        # Keep only last 500 to save space
+        if len(self.bot_data["economy_log"]) > 500:
+            self.bot_data["economy_log"] = self.bot_data["economy_log"][-500:]
         
-        logger.info(f"💰 [{transaction_type}] User {user_id}: {amount} coins ({reason})")
+        logger.info(f"💰 {user_id}: {delta:+d} → {new_balance} ({reason})")
