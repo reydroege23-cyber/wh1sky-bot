@@ -57,7 +57,7 @@ def test_config():
     
     try:
         from config import (
-            TELEGRAM_TOKEN, GEMINI_API_KEY, ADMIN_IDS,
+            TELEGRAM_TOKEN, OPENROUTER_API_KEY, ADMIN_IDS,
             MAX_WARNINGS, MUTE_DURATION, AI_MODEL
         )
         
@@ -66,10 +66,10 @@ def test_config():
         else:
             print(f"  [OK] TELEGRAM_TOKEN: {'*' * 10}")
         
-        if not GEMINI_API_KEY or GEMINI_API_KEY == "your_key_here":
-            print("  [WARN] GEMINI_API_KEY not set in .env")
+        if not OPENROUTER_API_KEY or OPENROUTER_API_KEY == "your_key_here":
+            print("  [WARN] OPENROUTER_API_KEY not set in .env")
         else:
-            print(f"  [OK] GEMINI_API_KEY: {'*' * 10}")
+            print(f"  [OK] OPENROUTER_API_KEY: {'*' * 10}")
         
         print(f"  [OK] ADMIN_IDS: {len(ADMIN_IDS)} admin(s)")
         print(f"  [OK] MAX_WARNINGS: {MAX_WARNINGS}")

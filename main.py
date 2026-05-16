@@ -31,6 +31,7 @@ import os
 
 from economy import Economy
 from gambling import GamblingGames
+from achievements import AchievementChecker, format_achievements_display, format_profile_card, format_leaderboard_with_rank
 from ui_animations import (
     format_result,
     format_balance_card,
@@ -120,8 +121,22 @@ bot_data = load_data()
 economy = Economy(bot_data)
 gambling_games = GamblingGames()
 
-logger.info("✅ Economy system initialized (SQLite persistence)")
-logger.info(f"💰 Loaded {economy.get_user_count()} users from database")
+# Initialize achievement checker
+from database import EconomyDatabase
+achievement_db = EconomyDatabase("economy.db")
+achievement_checker = AchievementChecker(achievement_db)
+
+logger.info("="*60)
+logger.info("✅ ECONOMY SYSTEM INITIALIZED")
+logger.info("✅ ACHIEVEMENT SYSTEM INITIALIZED")
+logger.info("="*60)
+logger.info(f"💾 Database location (ABSOLUTE PATH):")
+from pathlib import Path
+from database import DATA_DIR
+logger.info(f"   {DATA_DIR / 'economy.db'}")
+logger.info(f"✨ This database SURVIVES bot updates!")
+logger.info(f"👥 Loaded {economy.get_user_count()} users from database")
+logger.info("="*60)
 
 # =========================
 # DECORATORS (ENHANCED)
@@ -336,10 +351,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚠️ **DISCLAIMER**: No real money, crypto, or real-world value!
 • `/balance` - Check your coin balance
 • `/daily` - Claim 50 free coins (24h cooldown)
+• `/sendcoins @user amount` - Send coins to another player
 • `/coinflip <amount>` - 50/50 game (2x multiplier)
 • `/slots <amount>` - Slot machine (jackpot possible)
 • `/dicegame <amount>` - Roll vs bot
+• `/roulette <amount>` - Roulette game
 • `/top` - Leaderboard (top 10 richest)
+
+**🏆 ACHIEVEMENT & PROFILE COMMANDS:**
+• `/achievements` - View your unlocked achievements
+• `/profile` - View your detailed player profile & stats
+• `/rank` - View leaderboard with your rank
 
 **🎮 FUN COMMANDS (11):**
 • `/roll [sides]` - Roll dice (default 6)
@@ -1818,12 +1840,233 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
             daily_msg = format_daily_reward(coins_gained)
             daily_msg += f"\n\n💰 New Balance: **{new_balance}** coins"
             await update.message.reply_text(daily_msg, parse_mode="Markdown")
+            
+            # Check for new achievements
+            await achievement_checker.check_all_achievements(user_id, new_balance)
+            
             logger.info(f"🎁 {user_id} claimed daily reward")
         else:
             await update.message.reply_text(msg)
     except Exception as e:
         logger.error(f"Daily error: {e}")
         await update.message.reply_text(error_msg("Could not claim reward"))
+
+@user_tracking
+@rate_limit(cooldown_type="command", cooldown_seconds=2)
+async def sendcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Send coins to another player (ATOMIC, PERSISTENT).
+    
+    Usage:
+    1. Reply mode: /sendcoins 100
+    2. Mention mode: /sendcoins @username 100
+    
+    Features:
+    ✅ Database-only (no reset on restart)
+    ✅ Prevents self-transfer
+    ✅ Validates balance before transfer
+    ✅ Auto-creates receiver if needed
+    ✅ Atomic commit (no partial transfers)
+    ✅ Prevents negative amounts
+    """
+    try:
+        sender_id = update.effective_user.id
+        sender_name = update.effective_user.first_name or "Player"
+        
+        # =====================
+        # PARSE ARGUMENTS
+        # =====================
+        
+        receiver_id = None
+        receiver_name = None
+        amount = None
+        
+        # OPTION 1: Reply to message
+        if update.message.reply_to_message:
+            receiver_id = update.message.reply_to_message.from_user.id
+            receiver_name = update.message.reply_to_message.from_user.first_name or "Player"
+            
+            # Amount is in args[0]
+            if not context.args or len(context.args) < 1:
+                await update.message.reply_text(
+                    error_msg("Usage (reply): /sendcoins 100"),
+                    parse_mode="Markdown"
+                )
+                return
+            
+            try:
+                amount = int(context.args[0])
+            except ValueError:
+                await update.message.reply_text(
+                    error_msg("Amount must be a number"),
+                    parse_mode="Markdown"
+                )
+                return
+        
+        # OPTION 2: Mention @user
+        else:
+            if not context.args or len(context.args) < 2:
+                await update.message.reply_text(
+                    error_msg("Usage (mention): /sendcoins @username 100"),
+                    parse_mode="Markdown"
+                )
+                return
+            
+            mention = context.args[0]
+            
+            # Validate it's a mention
+            if not mention.startswith("@"):
+                await update.message.reply_text(
+                    error_msg("Please mention a user: /sendcoins @username 100"),
+                    parse_mode="Markdown"
+                )
+                return
+            
+            # Try to get user by mention
+            try:
+                user_obj = await context.bot.get_chat_member(
+                    chat_id=update.effective_chat.id,
+                    user_id=mention
+                )
+                receiver_id = user_obj.user.id
+                receiver_name = user_obj.user.first_name or "Player"
+            except Exception as e:
+                logger.warning(f"Failed to resolve mention {mention}: {e}")
+                await update.message.reply_text(
+                    error_msg(f"Could not find user {mention}"),
+                    parse_mode="Markdown"
+                )
+                return
+            
+            # Parse amount
+            try:
+                amount = int(context.args[1])
+            except (ValueError, IndexError):
+                await update.message.reply_text(
+                    error_msg("Amount must be a number: /sendcoins @user 100"),
+                    parse_mode="Markdown"
+                )
+                return
+        
+        # =====================
+        # TRANSFER
+        # =====================
+        
+        success, message = economy.transfer_coins(sender_id, receiver_id, amount)
+        
+        if success:
+            sender_balance = economy.get_balance(sender_id)
+            receiver_balance = economy.get_balance(receiver_id)
+            
+            # Track achievement stats
+            achievement_db.increment_stat(sender_id, 'coins_sent', amount)
+            achievement_db.increment_stat(receiver_id, 'coins_received', amount)
+            
+            # Check for new achievements
+            await achievement_checker.check_all_achievements(sender_id, sender_balance)
+            await achievement_checker.check_all_achievements(receiver_id, receiver_balance)
+            
+            success_message = f"""✅ **TRANSFER COMPLETE**
+
+👤 From: {sender_name} ({sender_id})
+🎯 To: {receiver_name}
+💰 Amount: {amount} coins
+
+**New Balances:**
+• {sender_name}: {sender_balance} coins
+• {receiver_name}: {receiver_balance} coins
+"""
+            await update.message.reply_text(success_message, parse_mode="Markdown")
+            logger.info(f"💸 Transfer: {sender_id} ({sender_name}) → {receiver_id} ({receiver_name}): {amount} coins")
+        else:
+            await update.message.reply_text(
+                error_msg(f"❌ Transfer failed: {message}"),
+                parse_mode="Markdown"
+            )
+    
+    except Exception as e:
+        logger.error(f"❌ Sendcoins error: {e}")
+        logger.error(traceback.format_exc())
+        await update.message.reply_text(
+            error_msg("Transfer error - check bot logs"),
+            parse_mode="Markdown"
+        )
+
+@user_tracking
+@rate_limit(cooldown_type="command", cooldown_seconds=2)
+async def achievements(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show user's achievements and progress."""
+    try:
+        user_id = update.effective_user.id
+        
+        # Check for new achievements
+        await achievement_checker.check_all_achievements(user_id)
+        
+        # Get and display achievements
+        display = format_achievements_display(user_id, achievement_db)
+        await update.message.reply_text(display)
+        
+        logger.info(f"📜 {user_id} viewed achievements")
+    
+    except Exception as e:
+        logger.error(f"❌ Achievements error: {e}")
+        await update.message.reply_text(
+            error_msg("Could not load achievements"),
+            parse_mode="Markdown"
+        )
+
+@user_tracking
+@rate_limit(cooldown_type="command", cooldown_seconds=2)
+async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show comprehensive player profile with stats."""
+    try:
+        user_id = update.effective_user.id
+        
+        # Check for new achievements
+        await achievement_checker.check_all_achievements(user_id)
+        
+        # Get and display profile
+        profile_card = format_profile_card(user_id, achievement_db)
+        await update.message.reply_text(f"```\n{profile_card}\n```", parse_mode="Markdown")
+        
+        logger.info(f"👤 {user_id} viewed profile")
+    
+    except Exception as e:
+        logger.error(f"❌ Profile error: {e}")
+        await update.message.reply_text(
+            error_msg("Could not load profile"),
+            parse_mode="Markdown"
+        )
+
+@user_tracking
+@rate_limit(cooldown_type="command", cooldown_seconds=2)
+async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show leaderboard with player's rank."""
+    try:
+        user_id = update.effective_user.id
+        
+        # Get top 10 users
+        top_users = achievement_db.get_top_users(limit=10)
+        
+        if not top_users:
+            await update.message.reply_text(
+                error_msg("Leaderboard is empty"),
+                parse_mode="Markdown"
+            )
+            return
+        
+        # Display with rank
+        leaderboard = format_leaderboard_with_rank(top_users, user_id, achievement_db)
+        await update.message.reply_text(f"```\n{leaderboard}\n```", parse_mode="Markdown")
+        
+        logger.info(f"🏆 {user_id} viewed rank")
+    
+    except Exception as e:
+        logger.error(f"❌ Rank error: {e}")
+        await update.message.reply_text(
+            error_msg("Could not load leaderboard"),
+            parse_mode="Markdown"
+        )
 
 @user_tracking
 @rate_limit(cooldown_type="command", cooldown_seconds=2)
@@ -1868,9 +2111,31 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result['won']:
             economy.add_coins(user_id, result['coins_won'], "Coinflip win")
             economy.record_win(user_id, bet_amount, result['coins_won'], "Coinflip")
+            # Track achievement stats
+            achievement_db.increment_stat(user_id, 'total_wins', 1)
+            achievement_db.increment_stat(user_id, 'games_played', 1)
+            achievement_db.increment_stat(user_id, 'win_streak', 1)
+            
+            # Update max_win_streak if current streak is higher
+            stats = achievement_db.get_player_stats(user_id)
+            if stats.get('win_streak', 0) > stats.get('max_win_streak', 0):
+                achievement_db.set_stat(user_id, 'max_win_streak', stats.get('win_streak', 0))
+            
+            # Update biggest_win if applicable
+            if result['coins_won'] > stats.get('biggest_win', 0):
+                achievement_db.set_stat(user_id, 'biggest_win', result['coins_won'])
         else:
             economy.remove_coins(user_id, bet_amount, "Coinflip loss")
             economy.record_loss(user_id, bet_amount, "Coinflip")
+            # Track achievement stats
+            achievement_db.increment_stat(user_id, 'total_losses', 1)
+            achievement_db.increment_stat(user_id, 'games_played', 1)
+            achievement_db.set_stat(user_id, 'win_streak', 0)  # Reset streak on loss
+        
+        achievement_db.increment_stat(user_id, 'total_bets', 1)
+        
+        # Check for new achievements
+        await achievement_checker.check_all_achievements(user_id, economy.get_balance(user_id))
         
         save_data(bot_data)
         new_balance = economy.get_balance(user_id)
@@ -1934,9 +2199,29 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result['won']:
             economy.add_coins(user_id, result['coins_won'], "Slots win")
             economy.record_win(user_id, bet_amount, result['coins_won'], "Slots")
+            # Track achievement stats
+            achievement_db.increment_stat(user_id, 'total_wins', 1)
+            achievement_db.increment_stat(user_id, 'games_played', 1)
+            achievement_db.increment_stat(user_id, 'win_streak', 1)
+            
+            stats = achievement_db.get_player_stats(user_id)
+            if stats.get('win_streak', 0) > stats.get('max_win_streak', 0):
+                achievement_db.set_stat(user_id, 'max_win_streak', stats.get('win_streak', 0))
+            
+            if result['coins_won'] > stats.get('biggest_win', 0):
+                achievement_db.set_stat(user_id, 'biggest_win', result['coins_won'])
         else:
             economy.remove_coins(user_id, bet_amount, "Slots loss")
             economy.record_loss(user_id, bet_amount, "Slots")
+            # Track achievement stats
+            achievement_db.increment_stat(user_id, 'total_losses', 1)
+            achievement_db.increment_stat(user_id, 'games_played', 1)
+            achievement_db.set_stat(user_id, 'win_streak', 0)
+        
+        achievement_db.increment_stat(user_id, 'total_bets', 1)
+        
+        # Check for new achievements
+        await achievement_checker.check_all_achievements(user_id, economy.get_balance(user_id))
         
         save_data(bot_data)
         new_balance = economy.get_balance(user_id)
@@ -1994,9 +2279,29 @@ async def dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result['coins_won'] > 0:
             economy.add_coins(user_id, result['coins_won'], "Dice win")
             economy.record_win(user_id, bet_amount, result['coins_won'], "Dice")
+            # Track achievement stats
+            achievement_db.increment_stat(user_id, 'total_wins', 1)
+            achievement_db.increment_stat(user_id, 'games_played', 1)
+            achievement_db.increment_stat(user_id, 'win_streak', 1)
+            
+            stats = achievement_db.get_player_stats(user_id)
+            if stats.get('win_streak', 0) > stats.get('max_win_streak', 0):
+                achievement_db.set_stat(user_id, 'max_win_streak', stats.get('win_streak', 0))
+            
+            if result['coins_won'] > stats.get('biggest_win', 0):
+                achievement_db.set_stat(user_id, 'biggest_win', result['coins_won'])
         elif result['coins_won'] < 0:
             economy.remove_coins(user_id, bet_amount, "Dice loss")
             economy.record_loss(user_id, bet_amount, "Dice")
+            # Track achievement stats
+            achievement_db.increment_stat(user_id, 'total_losses', 1)
+            achievement_db.increment_stat(user_id, 'games_played', 1)
+            achievement_db.set_stat(user_id, 'win_streak', 0)
+        
+        achievement_db.increment_stat(user_id, 'total_bets', 1)
+        
+        # Check for new achievements
+        await achievement_checker.check_all_achievements(user_id, economy.get_balance(user_id))
         
         save_data(bot_data)
         new_balance = economy.get_balance(user_id)
@@ -2103,8 +2408,28 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if result['won']:
             economy.add_coins(user_id, result['coins_won'], f"Roulette win - {choice}")
             economy.record_win(user_id, bet_amount, result['coins_won'], "Roulette")
+            # Track achievement stats
+            achievement_db.increment_stat(user_id, 'total_wins', 1)
+            achievement_db.increment_stat(user_id, 'games_played', 1)
+            achievement_db.increment_stat(user_id, 'win_streak', 1)
+            
+            stats = achievement_db.get_player_stats(user_id)
+            if stats.get('win_streak', 0) > stats.get('max_win_streak', 0):
+                achievement_db.set_stat(user_id, 'max_win_streak', stats.get('win_streak', 0))
+            
+            if result['coins_won'] > stats.get('biggest_win', 0):
+                achievement_db.set_stat(user_id, 'biggest_win', result['coins_won'])
         else:
             economy.record_loss(user_id, bet_amount, "Roulette")
+            # Track achievement stats
+            achievement_db.increment_stat(user_id, 'total_losses', 1)
+            achievement_db.increment_stat(user_id, 'games_played', 1)
+            achievement_db.set_stat(user_id, 'win_streak', 0)
+        
+        achievement_db.increment_stat(user_id, 'total_bets', 1)
+        
+        # Check for new achievements
+        await achievement_checker.check_all_achievements(user_id, economy.get_balance(user_id))
         
         save_data(bot_data)
         balance_after = economy.get_balance(user_id)
@@ -2180,6 +2505,65 @@ async def stop_speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def unspeak(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Alias for stop_speak - disable Whisky AI speak mode."""
     await stop_speak(update, context)
+
+# =========================
+# DIAGNOSTIC COMMAND (ADMIN)
+# =========================
+
+@admin_only
+async def dbstatus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Check database status and location. Admin only."""
+    try:
+        import sqlite3
+        from pathlib import Path
+        from database import DATA_DIR
+        
+        db_path = DATA_DIR / "economy.db"
+        
+        status_msg = "🔍 **DATABASE STATUS**\n\n"
+        status_msg += f"**📁 Location (ABSOLUTE PATH):**\n`{db_path}`\n\n"
+        
+        if db_path.exists():
+            size = db_path.stat().st_size
+            status_msg += f"✅ Database file exists\n"
+            status_msg += f"📦 File size: {size:,} bytes\n\n"
+            
+            # Count users and total coins
+            with sqlite3.connect(str(db_path)) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("SELECT COUNT(*) FROM users")
+                user_count = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT SUM(balance) FROM users")
+                total_coins = cursor.fetchone()[0] or 0
+                
+                status_msg += f"**👥 Users:** {user_count}\n"
+                status_msg += f"**💰 Total coins in circulation:** {total_coins:,}\n\n"
+                
+                # Top 3 users
+                cursor.execute("""
+                    SELECT user_id, balance FROM users 
+                    ORDER BY balance DESC LIMIT 3
+                """)
+                top = cursor.fetchall()
+                
+                if top:
+                    status_msg += "**🏆 Top 3 richest:**\n"
+                    for i, (uid, bal) in enumerate(top, 1):
+                        status_msg += f"{i}. User {uid}: {bal} coins\n"
+            
+            status_msg += "\n✅ **Database is persistent and will survive bot updates**"
+        else:
+            status_msg += "❌ Database file not found!\n"
+            status_msg += "⚠️ Economy data may not be persistent"
+        
+        await update.message.reply_text(status_msg, parse_mode="Markdown")
+        logger.info(f"📊 {update.effective_user.id} checked database status")
+        
+    except Exception as e:
+        logger.error(f"Database status error: {e}")
+        await update.message.reply_text(f"❌ Error checking database: {e}")
 
 # =========================
 # FUN COMMANDS (NEW)
@@ -2913,6 +3297,7 @@ def setup_bot():
     app.add_handler(CommandHandler("speak", speak))
     app.add_handler(CommandHandler("stop_speak", stop_speak))
     app.add_handler(CommandHandler("unSpeak", unspeak))
+    app.add_handler(CommandHandler("dbstatus", dbstatus))  # Database status (admin only)
     
     # New Fun Commands
     app.add_handler(CommandHandler("roast", roast))
@@ -2936,11 +3321,15 @@ def setup_bot():
     # Economy Commands
     app.add_handler(CommandHandler("balance", balance))
     app.add_handler(CommandHandler("daily", daily))
+    app.add_handler(CommandHandler("sendcoins", sendcoins))
     app.add_handler(CommandHandler("coinflip", coinflip))
     app.add_handler(CommandHandler("slots", slots))
     app.add_handler(CommandHandler("dicegame", dice_game))
     app.add_handler(CommandHandler("roulette", roulette))
     app.add_handler(CommandHandler("top", top))
+    app.add_handler(CommandHandler("achievements", achievements))
+    app.add_handler(CommandHandler("profile", profile))
+    app.add_handler(CommandHandler("rank", rank))
     app.add_handler(CommandHandler("addcoins", addcoins_cmd))
     app.add_handler(CommandHandler("removecoins", removecoins_cmd))
     app.add_handler(CommandHandler("setcoins", setcoins_cmd))

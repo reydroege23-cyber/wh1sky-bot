@@ -159,7 +159,7 @@ def test_code_quality():
     """Test code quality."""
     print("\n⚡ Testing Code Quality...")
     
-    with open("main.py", 'r') as f:
+    with open("main.py", 'r', encoding='utf-8') as f:
         main_code = f.read()
     
     issues = []
@@ -184,7 +184,8 @@ def test_code_quality():
     
     print("✅ Code quality checks passed")
     print(f"   • Lines of code: {len(main_code.splitlines())}")
-    print(f"   • Docstrings: {main_code.count('\"\"\"') // 2}")
+    docstring_count = main_code.count('"""') // 2
+    print(f"   • Docstrings: {docstring_count}")
     print(f"   • Try-except blocks: {main_code.count('try:')}")
     print(f"   • Log statements: {main_code.count('logger.')}")
     return True
@@ -200,7 +201,7 @@ def test_commands():
         "info", "admins"
     ]
     
-    with open("main.py", 'r') as f:
+    with open("main.py", 'r', encoding='utf-8') as f:
         main_code = f.read()
     
     found = 0

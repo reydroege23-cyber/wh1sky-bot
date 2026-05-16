@@ -263,3 +263,22 @@ class Economy:
     def get_user_count(self) -> int:
         """Get total number of users with balances."""
         return self.db.get_user_count()
+    
+    # ========================================
+    # PLAYER-TO-PLAYER TRANSFERS (ATOMIC)
+    # ========================================
+    
+    def transfer_coins(self, sender_id: int, receiver_id: int, amount: int) -> tuple:
+        """
+        Transfer coins from sender to receiver (atomic, persistent).
+        
+        Returns: (success: bool, message: str)
+        
+        Validation:
+        ✅ Prevents negative amounts
+        ✅ Prevents self-transfer
+        ✅ Checks sender balance
+        ✅ Auto-creates receiver if needed
+        ✅ Atomic database commit (no partial transfers)
+        """
+        return self.db.transfer_coins(sender_id, receiver_id, amount)

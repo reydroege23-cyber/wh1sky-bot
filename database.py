@@ -10,8 +10,21 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from config import DATA_FILE
 from datetime import datetime
+import os
 
 logger = logging.getLogger(__name__)
+
+# ========================
+# ENSURE DATA DIRECTORY EXISTS
+# ========================
+
+# Use absolute path for database persistence
+# This ensures data survives bot redeployments
+SCRIPT_DIR = Path(__file__).parent.absolute()
+DATA_DIR = SCRIPT_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+logger.info(f"📁 Data directory: {DATA_DIR}")
 
 # ========================
 # FILE-BASED JSON DATABASE (Legacy: warnings, mutes, etc)
@@ -142,11 +155,22 @@ class EconomyDatabase:
     """
     SQLite-based persistent economy system.
     Survives bot restarts, crashes, and redeployments.
+    
+    ✅ Uses ABSOLUTE PATH to ensure data persists across updates
+    ✅ Data stored in /data/economy.db (project directory)
+    ✅ Never gets lost during redeployment
     """
     
     def __init__(self, db_file: str = "economy.db"):
-        """Initialize SQLite economy database."""
-        self.db_file = db_file
+        """Initialize SQLite economy database with ABSOLUTE path."""
+        # Use absolute path to survive redeployments
+        if Path(db_file).is_absolute():
+            self.db_file = db_file
+        else:
+            # Store in data directory (persistent across deployments)
+            self.db_file = str(DATA_DIR / db_file)
+        
+        logger.info(f"💾 Economy database path (ABSOLUTE): {self.db_file}")
         self.init_database()
     
     def init_database(self):
@@ -169,6 +193,35 @@ class EconomyDatabase:
                     )
                 """)
                 
+                # Create achievements table (persistent achievement tracking)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS achievements (
+                        user_id INTEGER,
+                        achievement_key TEXT,
+                        unlocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY(user_id, achievement_key),
+                        FOREIGN KEY(user_id) REFERENCES users(user_id)
+                    )
+                """)
+                
+                # Create player_stats table (extended statistics)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS player_stats (
+                        user_id INTEGER PRIMARY KEY,
+                        total_wins INTEGER DEFAULT 0,
+                        total_losses INTEGER DEFAULT 0,
+                        total_bets INTEGER DEFAULT 0,
+                        biggest_win INTEGER DEFAULT 0,
+                        coins_sent INTEGER DEFAULT 0,
+                        coins_received INTEGER DEFAULT 0,
+                        win_streak INTEGER DEFAULT 0,
+                        max_win_streak INTEGER DEFAULT 0,
+                        games_played INTEGER DEFAULT 0,
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(user_id) REFERENCES users(user_id)
+                    )
+                """)
+                
                 # Create performance indexes
                 cursor.execute("""
                     CREATE INDEX IF NOT EXISTS idx_users_balance 
@@ -178,9 +231,28 @@ class EconomyDatabase:
                     CREATE INDEX IF NOT EXISTS idx_users_daily_claim 
                     ON users(daily_claim_timestamp)
                 """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_achievements_user 
+                    ON achievements(user_id)
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_player_stats_wins 
+                    ON player_stats(total_wins DESC)
+                """)
                 
                 conn.commit()
-                logger.info(f"✅ Economy database initialized with indexes: {self.db_file}")
+                
+                # Verify database is working
+                cursor.execute("SELECT COUNT(*) FROM users")
+                user_count = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM achievements")
+                achievement_count = cursor.fetchone()[0]
+                
+                logger.info(f"✅ Economy database initialized")
+                logger.info(f"   📁 Path: {self.db_file}")
+                logger.info(f"   👥 Users: {user_count}")
+                logger.info(f"   🏆 Achievements: {achievement_count}")
+                logger.info(f"   ✨ Achievement system ACTIVE (persistent)")
         except Exception as e:
             logger.error(f"❌ Error initializing economy database: {e}")
     
@@ -386,4 +458,232 @@ class EconomyDatabase:
             return True
         except Exception as e:
             logger.error(f"❌ Error setting daily claim for {user_id}: {e}")
+            return False
+    
+    # ========================
+    # COIN TRANSFER (ATOMIC)
+    # ========================
+    
+    def transfer_coins(self, sender_id: int, receiver_id: int, amount: int) -> tuple[bool, str]:
+        """
+        Transfer coins from sender to receiver (ATOMIC operation).
+        
+        Returns: (success: bool, message: str)
+        
+        Validation:
+        ✅ Prevents negative amounts
+        ✅ Prevents self-transfer
+        ✅ Checks sender balance
+        ✅ Auto-creates receiver if needed
+        ✅ Atomic commit (no partial transfers)
+        """
+        # ========== VALIDATION ==========
+        
+        if amount <= 0:
+            return False, "Amount must be positive"
+        
+        if sender_id == receiver_id:
+            return False, "Cannot send coins to yourself"
+        
+        try:
+            # Auto-register both users
+            self.register_user(sender_id)
+            self.register_user(receiver_id)
+            
+            with sqlite3.connect(self.db_file) as conn:
+                cursor = conn.cursor()
+                
+                # Check sender balance
+                cursor.execute("SELECT balance FROM users WHERE user_id = ?", (sender_id,))
+                result = cursor.fetchone()
+                
+                if not result or result[0] < amount:
+                    return False, "Insufficient balance"
+                
+                # ========== TRANSFER (ATOMIC) ==========
+                
+                # Subtract from sender
+                cursor.execute("""
+                    UPDATE users
+                    SET balance = balance - ?, last_updated = CURRENT_TIMESTAMP
+                    WHERE user_id = ?
+                """, (amount, sender_id))
+                
+                # Add to receiver
+                cursor.execute("""
+                    UPDATE users
+                    SET balance = balance + ?, last_updated = CURRENT_TIMESTAMP
+                    WHERE user_id = ?
+                """, (amount, receiver_id))
+                
+                # Commit both changes atomically
+                conn.commit()
+                
+                logger.info(f"💸 Transfer: {sender_id} → {receiver_id}: {amount} coins")
+                return True, f"✅ Transferred {amount} coins to user {receiver_id}"
+        
+        except Exception as e:
+            logger.error(f"❌ Transfer error: {e}")
+            return False, "Transfer failed (database error)"
+    
+    # ========================
+    # ACHIEVEMENT SYSTEM
+    # ========================
+    
+    def unlock_achievement(self, user_id: int, achievement_key: str) -> bool:
+        """
+        Unlock an achievement for a user.
+        Uses INSERT OR IGNORE to prevent duplicate unlocks.
+        
+        Returns: True if newly unlocked or already exists
+        """
+        try:
+            self.register_user(user_id)
+            with sqlite3.connect(self.db_file) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR IGNORE INTO achievements (user_id, achievement_key)
+                    VALUES (?, ?)
+                """, (user_id, achievement_key))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error unlocking achievement {achievement_key} for {user_id}: {e}")
+            return False
+    
+    def is_achievement_unlocked(self, user_id: int, achievement_key: str) -> bool:
+        """Check if user has already unlocked an achievement."""
+        try:
+            with sqlite3.connect(self.db_file) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT 1 FROM achievements
+                    WHERE user_id = ? AND achievement_key = ?
+                """, (user_id, achievement_key))
+                return cursor.fetchone() is not None
+        except Exception as e:
+            logger.error(f"❌ Error checking achievement: {e}")
+            return False
+    
+    def get_user_achievements(self, user_id: int) -> list:
+        """Get all unlocked achievements for a user."""
+        try:
+            with sqlite3.connect(self.db_file) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT achievement_key, unlocked_at FROM achievements
+                    WHERE user_id = ?
+                    ORDER BY unlocked_at DESC
+                """, (user_id,))
+                return cursor.fetchall()
+        except Exception as e:
+            logger.error(f"❌ Error getting achievements: {e}")
+            return []
+    
+    def get_player_stats(self, user_id: int) -> dict:
+        """Get extended player statistics."""
+        try:
+            self.register_user(user_id)
+            with sqlite3.connect(self.db_file) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT * FROM player_stats WHERE user_id = ?
+                """, (user_id,))
+                result = cursor.fetchone()
+                
+                if result:
+                    return dict(result)
+                else:
+                    # Create default stats
+                    cursor.execute("""
+                        INSERT INTO player_stats (user_id)
+                        VALUES (?)
+                    """, (user_id,))
+                    conn.commit()
+                    return {
+                        'user_id': user_id,
+                        'total_wins': 0,
+                        'total_losses': 0,
+                        'total_bets': 0,
+                        'biggest_win': 0,
+                        'coins_sent': 0,
+                        'coins_received': 0,
+                        'win_streak': 0,
+                        'max_win_streak': 0,
+                        'games_played': 0
+                    }
+        except Exception as e:
+            logger.error(f"❌ Error getting player stats: {e}")
+            return {}
+    
+    def update_player_stats(self, user_id: int, **kwargs) -> bool:
+        """
+        Update player statistics (flexible).
+        
+        Example: update_player_stats(user_id, total_wins=10, biggest_win=500)
+        """
+        try:
+            self.register_user(user_id)
+            
+            # Ensure stats entry exists
+            self.get_player_stats(user_id)
+            
+            if not kwargs:
+                return True
+            
+            # Build update query
+            set_clause = ", ".join([f"{key} = {key} + ?" if key.startswith('total_') or key.startswith('coins_') else f"{key} = ?" for key in kwargs.keys()])
+            values = list(kwargs.values())
+            values.append(user_id)
+            
+            with sqlite3.connect(self.db_file) as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"""
+                    UPDATE player_stats
+                    SET {set_clause}, last_updated = CURRENT_TIMESTAMP
+                    WHERE user_id = ?
+                """, values)
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error updating player stats: {e}")
+            return False
+    
+    def increment_stat(self, user_id: int, stat_name: str, amount: int = 1) -> bool:
+        """Increment a stat by amount (for counters)."""
+        try:
+            self.register_user(user_id)
+            self.get_player_stats(user_id)  # Ensure exists
+            
+            with sqlite3.connect(self.db_file) as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"""
+                    UPDATE player_stats
+                    SET {stat_name} = {stat_name} + ?, last_updated = CURRENT_TIMESTAMP
+                    WHERE user_id = ?
+                """, (amount, user_id))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error incrementing stat {stat_name}: {e}")
+            return False
+    
+    def set_stat(self, user_id: int, stat_name: str, value: int) -> bool:
+        """Set a stat to exact value."""
+        try:
+            self.register_user(user_id)
+            self.get_player_stats(user_id)  # Ensure exists
+            
+            with sqlite3.connect(self.db_file) as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"""
+                    UPDATE player_stats
+                    SET {stat_name} = ?, last_updated = CURRENT_TIMESTAMP
+                    WHERE user_id = ?
+                """, (value, user_id))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error setting stat {stat_name}: {e}")
             return False

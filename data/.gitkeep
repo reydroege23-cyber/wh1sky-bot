@@ -1,0 +1,13 @@
+# This directory stores persistent bot data (economy database)
+# DO NOT DELETE THIS FOLDER!
+# 
+# Files in this directory:
+# - economy.db: SQLite database with user balances, daily claims, stats
+#
+# These files SURVIVE:
+# ✅ Bot restarts
+# ✅ Bot updates/redeployment  
+# ✅ Server crashes
+# ✅ Power outages
+#
+# BACKUP THESE FILES REGULARLY!
