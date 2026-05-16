@@ -15,6 +15,50 @@ import os
 logger = logging.getLogger(__name__)
 
 # ========================
+# USER VALIDATION FUNCTIONS
+# ========================
+
+def is_valid_telegram_id(user_id: int) -> bool:
+    """
+    Validate if user_id is a legitimate Telegram ID.
+    
+    Rules:
+    ✔ Must be >= 100000000 (9+ digits, realistic Telegram ID range)
+    ✔ Must be <= 9999999999 (reasonable upper bound)
+    ✔ Cannot start with "000" pattern
+    ✔ Cannot be suspiciously formatted
+    
+    Returns: True if valid, False if fake/invalid
+    """
+    # Convert to int if string
+    if isinstance(user_id, str):
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            logger.warning(f"⚠️ Invalid user_id format: {user_id}")
+            return False
+    
+    # Telegram user IDs should be >= 100000000 (9+ digits)
+    if user_id < 100000000:
+        logger.warning(f"❌ FAKE USER ID DETECTED: {user_id} (too small)")
+        return False
+    
+    # Reasonable upper bound for user IDs
+    if user_id > 9999999999:
+        logger.warning(f"❌ FAKE USER ID DETECTED: {user_id} (too large)")
+        return False
+    
+    # Check for suspicious patterns
+    user_str = str(user_id)
+    
+    # Starts with "000" pattern (like "00000010", "00010000")
+    if user_str.startswith("000"):
+        logger.warning(f"❌ FAKE USER ID DETECTED: {user_id} (suspicious 000 pattern)")
+        return False
+    
+    return True
+
+# ========================
 # ENSURE DATA DIRECTORY EXISTS
 # ========================
 
@@ -330,21 +374,41 @@ class EconomyDatabase:
         """Atomically subtract from user balance."""
         return self.add_balance(user_id, -amount)
     
-    def get_top_users(self, limit: int = 10) -> List[Tuple[int, int]]:
+    def get_top_users(self, limit: int = 10) -> List[Tuple[int, str, str, int]]:
         """
-        Get top users by balance (for leaderboard).
-        Returns list of (user_id, balance) tuples.
+        Get top users by balance with validation (for leaderboard).
+        
+        Returns: [(user_id, username, first_name, balance), ...]
+        
+        Features:
+        ✔ Automatically filters out FAKE/INVALID user IDs
+        ✔ Only returns valid Telegram users
+        ✔ Includes user display info (username, first_name)
+        ✔ Real-time from database
         """
         try:
             with sqlite3.connect(self.db_file) as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT user_id, balance
+                    SELECT user_id, username, first_name, balance
                     FROM users
                     ORDER BY balance DESC
                     LIMIT ?
-                """, (limit,))
-                return cursor.fetchall()
+                """, (limit * 2,))  # Fetch extra in case some are invalid
+                
+                all_users = cursor.fetchall()
+            
+            # Filter out FAKE/INVALID user IDs
+            valid_users = []
+            for user_id, username, first_name, balance in all_users:
+                if is_valid_telegram_id(user_id):
+                    valid_users.append((user_id, username, first_name, balance))
+                    if len(valid_users) >= limit:
+                        break  # Got enough valid users
+                else:
+                    logger.warning(f"⚠️ Skipping invalid user in leaderboard: {user_id}")
+            
+            return valid_users
         except Exception as e:
             logger.error(f"❌ Error getting top users: {e}")
             return []
@@ -687,3 +751,76 @@ class EconomyDatabase:
         except Exception as e:
             logger.error(f"❌ Error setting stat {stat_name}: {e}")
             return False
+    
+    # ========================
+    # DATABASE CLEANUP (REMOVE FAKE USERS)
+    # ========================
+    
+    def cleanup_fake_users(self) -> tuple[int, List[int]]:
+        """
+        Remove all FAKE/INVALID user IDs from database.
+        
+        Returns: (removed_count: int, removed_ids: List[int])
+        
+        This function:
+        ✔ Identifies all invalid user IDs
+        ✔ Removes them from database
+        ✔ Logs the cleanup
+        ✔ Returns list of removed IDs for verification
+        """
+        try:
+            with sqlite3.connect(self.db_file) as conn:
+                cursor = conn.cursor()
+                
+                # Get all users
+                cursor.execute("SELECT user_id FROM users ORDER BY user_id")
+                all_users = cursor.fetchall()
+                
+                removed_ids = []
+                removed_count = 0
+                
+                # Check each user
+                for (user_id,) in all_users:
+                    if not is_valid_telegram_id(user_id):
+                        # Delete this user
+                        cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+                        removed_ids.append(user_id)
+                        removed_count += 1
+                        logger.warning(f"🗑️ Removed fake user from database: {user_id}")
+                
+                conn.commit()
+                
+                if removed_count > 0:
+                    logger.info(f"✅ Database cleanup complete: Removed {removed_count} fake users")
+                    logger.info(f"📋 Removed IDs: {removed_ids}")
+                else:
+                    logger.info(f"✅ Database cleanup complete: No fake users found")
+                
+                return removed_count, removed_ids
+        except Exception as e:
+            logger.error(f"❌ Error cleaning up fake users: {e}")
+            return 0, []
+    
+    def get_fake_users(self) -> List[int]:
+        """
+        List all FAKE/INVALID user IDs without deleting them.
+        
+        Useful for verification before cleanup.
+        
+        Returns: List of invalid user IDs
+        """
+        try:
+            with sqlite3.connect(self.db_file) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT user_id FROM users ORDER BY user_id")
+                all_users = cursor.fetchall()
+                
+                fake_users = []
+                for (user_id,) in all_users:
+                    if not is_valid_telegram_id(user_id):
+                        fake_users.append(user_id)
+                
+                return fake_users
+        except Exception as e:
+            logger.error(f"❌ Error getting fake users list: {e}")
+            return []

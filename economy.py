@@ -13,6 +13,7 @@ Uses SQLite database for production-ready persistence:
 
 import logging
 from datetime import datetime, timedelta
+from typing import List
 from config import (
     STARTING_BALANCE, 
     MIN_BET, 
@@ -282,3 +283,47 @@ class Economy:
         ✅ Atomic database commit (no partial transfers)
         """
         return self.db.transfer_coins(sender_id, receiver_id, amount)
+    
+    # ========================================
+    # DATABASE VALIDATION & CLEANUP
+    # ========================================
+    
+    def cleanup_fake_users(self) -> dict:
+        """
+        Remove all FAKE/INVALID user IDs from database.
+        
+        Returns: {
+            'success': True,
+            'removed_count': int,
+            'removed_ids': List[int],
+            'message': str
+        }
+        
+        This function:
+        ✔ Identifies all invalid Telegram user IDs
+        ✔ Removes them from database permanently
+        ✔ Logs all changes
+        ✔ Returns details for verification
+        """
+        removed_count, removed_ids = self.db.cleanup_fake_users()
+        
+        message = f"✅ Database cleaned! Removed {removed_count} fake user(s)."
+        if removed_count > 0:
+            message += f"\nRemoved IDs: {removed_ids}"
+        
+        return {
+            'success': removed_count >= 0,
+            'removed_count': removed_count,
+            'removed_ids': removed_ids,
+            'message': message
+        }
+    
+    def get_fake_users_list(self) -> List[int]:
+        """
+        Get list of all FAKE/INVALID user IDs (without deleting).
+        
+        Useful for verification before cleanup.
+        
+        Returns: List of invalid user IDs
+        """
+        return self.db.get_fake_users()

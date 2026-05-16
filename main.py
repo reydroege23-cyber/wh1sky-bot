@@ -3783,6 +3783,10 @@ def setup_bot():
     app.add_handler(CommandHandler("removecoins", removecoins_cmd))
     app.add_handler(CommandHandler("setcoins", setcoins_cmd))
     
+    # Database cleanup commands
+    app.add_handler(CommandHandler("cleanupfake", admin_economy.cleanup_fake_users))
+    app.add_handler(CommandHandler("checkfake", admin_economy.check_fake_users))
+    
     # Messages (must be last)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     

@@ -126,26 +126,52 @@ def format_daily_reward(coins: int) -> str:
     """.strip()
 
 def format_leaderboard(top_users: list) -> str:
-    """Format top users leaderboard."""
-    msg = "╔════════════════════════════╗\n"
-    msg += "║  🏆 RICHEST USERS 🏆  ║\n"
-    msg += "╠════════════════════════════╣\n"
+    """
+    Format top users leaderboard with usernames and validation.
+    
+    Args:
+        top_users: List of (user_id, username, first_name, balance) tuples
+    
+    Features:
+    ✔ Shows usernames/first names (no raw IDs)
+    ✔ Only includes valid users (fake IDs filtered out)
+    ✔ Professional formatting with medals
+    ✔ Fallback to ID if no username available
+    """
+    msg = "╔════════════════════════════════════╗\n"
+    msg += "║   🏆 RICHEST USERS 🏆           ║\n"
+    msg += "╠════════════════════════════════════╣\n"
     
     medals = ["🥇", "🥈", "🥉"]
     
-    for idx, (user_id, balance) in enumerate(top_users[:10], 1):
+    for idx, entry in enumerate(top_users[:10], 1):
+        # Handle both old format (user_id, balance) and new format (user_id, username, first_name, balance)
+        if len(entry) == 4:
+            user_id, username, first_name, balance = entry
+        else:
+            # Fallback for old data format
+            user_id, balance = entry
+            username = ""
+            first_name = ""
+        
+        # Determine medal/position
         if idx <= 3:
             medal = medals[idx-1]
         else:
             medal = f"{idx}️⃣"
         
-        # Format user_id as 8 digits (with leading zeros if needed)
-        user_display = str(user_id).zfill(8)
+        # Get display name (prefer username, fallback to first_name, then user_id)
+        if username:
+            display_name = f"@{username[:15]}"
+        elif first_name:
+            display_name = f"{first_name[:15]}"
+        else:
+            display_name = f"ID:{user_id}"
         
-        # Format: ║ 🥇 07676185     7460 coins ║
-        msg += f"║ {medal} {user_display}     {balance:>4} coins ║\n"
+        # Format: ║ 🥇 @username    7460 coins ║
+        msg += f"║ {medal} {display_name:<18} {balance:>5} 💰║\n"
     
-    msg += "╚════════════════════════════╝"
+    msg += "╚════════════════════════════════════╝"
     return msg
 
 # ========================================
