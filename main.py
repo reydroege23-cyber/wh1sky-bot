@@ -1849,17 +1849,22 @@ async def gambling_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     try:
         user_id = update.effective_user.id
+        logger.info(f"[/gamblingoff] Called by user {user_id}")
         
         # ===== OWNER ONLY =====
         if user_id != OWNER_ID:
+            logger.warning(f"[/gamblingoff] Unauthorized attempt by {user_id} (Owner: {OWNER_ID})")
             await update.message.reply_text("❌ You are not authorized to use this command.")
-            logger.warning(f"🚫 Unauthorized gambling_off attempt by {user_id}")
             return
+        
+        logger.info(f"[/gamblingoff] Owner verification passed for {user_id}")
         
         # Check current status
         is_enabled = economy.db.is_gambling_enabled()
+        logger.info(f"[/gamblingoff] Current state: gambling_enabled={is_enabled}")
         
         if not is_enabled:
+            logger.info(f"[/gamblingoff] Gambling already disabled")
             await update.message.reply_text(
                 "🚫 Gambling system is ALREADY DISABLED.\n\n"
                 "💡 Use /gamblingon to re-enable it."
@@ -1867,7 +1872,9 @@ async def gambling_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Disable gambling
-        economy.db.set_gambling_enabled(False)
+        logger.info(f"[/gamblingoff] Setting gambling_enabled to False")
+        result = economy.db.set_gambling_enabled(False)
+        logger.info(f"[/gamblingoff] Database update result: {result}")
         
         # Confirm to owner
         msg = (
@@ -1882,11 +1889,14 @@ async def gambling_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "💡 Use /gamblingon to re-enable"
         )
         await update.message.reply_text(msg, parse_mode="Markdown")
-        logger.info(f"🚫 Gambling system DISABLED by {user_id}")
+        logger.info(f"[/gamblingoff] ✅ Gambling system DISABLED by {user_id}")
         
     except Exception as e:
-        logger.error(f"Gambling OFF error: {e}")
-        await update.message.reply_text(error_msg("Failed to disable gambling"))
+        logger.error(f"[/gamblingoff] ❌ Error: {type(e).__name__}: {e}", exc_info=True)
+        try:
+            await update.message.reply_text("❌ Failed to disable gambling. Check logs.")
+        except Exception as send_error:
+            logger.error(f"[/gamblingoff] Failed to send error message: {send_error}")
 
 @user_tracking
 @rate_limit(cooldown_type="command", cooldown_seconds=2)
@@ -1902,17 +1912,22 @@ async def gambling_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     try:
         user_id = update.effective_user.id
+        logger.info(f"[/gamblingon] Called by user {user_id}")
         
         # ===== OWNER ONLY =====
         if user_id != OWNER_ID:
+            logger.warning(f"[/gamblingon] Unauthorized attempt by {user_id} (Owner: {OWNER_ID})")
             await update.message.reply_text("❌ You are not authorized to use this command.")
-            logger.warning(f"🚫 Unauthorized gambling_on attempt by {user_id}")
             return
+        
+        logger.info(f"[/gamblingon] Owner verification passed for {user_id}")
         
         # Check current status
         is_enabled = economy.db.is_gambling_enabled()
+        logger.info(f"[/gamblingon] Current state: gambling_enabled={is_enabled}")
         
         if is_enabled:
+            logger.info(f"[/gamblingon] Gambling already enabled")
             await update.message.reply_text(
                 "✅ Gambling system is ALREADY ENABLED.\n\n"
                 "💡 Use /gamblingoff to disable it."
@@ -1920,7 +1935,9 @@ async def gambling_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         # Enable gambling
-        economy.db.set_gambling_enabled(True)
+        logger.info(f"[/gamblingon] Setting gambling_enabled to True")
+        result = economy.db.set_gambling_enabled(True)
+        logger.info(f"[/gamblingon] Database update result: {result}")
         
         # Confirm to owner
         msg = (
@@ -1935,11 +1952,14 @@ async def gambling_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "💡 Use /gamblingoff to disable"
         )
         await update.message.reply_text(msg, parse_mode="Markdown")
-        logger.info(f"✅ Gambling system ENABLED by {user_id}")
+        logger.info(f"[/gamblingon] ✅ Gambling system ENABLED by {user_id}")
         
     except Exception as e:
-        logger.error(f"Gambling ON error: {e}")
-        await update.message.reply_text(error_msg("Failed to enable gambling"))
+        logger.error(f"[/gamblingon] ❌ Error: {type(e).__name__}: {e}", exc_info=True)
+        try:
+            await update.message.reply_text("❌ Failed to enable gambling. Check logs.")
+        except Exception as send_error:
+            logger.error(f"[/gamblingon] Failed to send error message: {send_error}")
 
 @user_tracking
 @rate_limit(cooldown_type="command", cooldown_seconds=2)
