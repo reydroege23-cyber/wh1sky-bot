@@ -284,6 +284,21 @@ class EconomyDatabase:
                     ON player_stats(total_wins DESC)
                 """)
                 
+                # Create bot settings table (for gambling ON/OFF, etc.)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS bot_settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Initialize gambling_enabled setting if not exists
+                cursor.execute(
+                    "INSERT OR IGNORE INTO bot_settings (key, value) VALUES (?, ?)",
+                    ("gambling_enabled", "true")
+                )
+                
                 conn.commit()
                 
                 # Verify database is working
@@ -824,3 +839,56 @@ class EconomyDatabase:
         except Exception as e:
             logger.error(f"❌ Error getting fake users list: {e}")
             return []
+    
+    # ========================
+    # BOT SETTINGS (Gambling ON/OFF)
+    # ========================
+    
+    def get_setting(self, key: str, default: str = "true") -> str:
+        """
+        Get a bot setting value from persistent database.
+        
+        Returns: Setting value, or default if not found
+        """
+        try:
+            with sqlite3.connect(self.db_file) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT value FROM bot_settings WHERE key = ?",
+                    (key,)
+                )
+                result = cursor.fetchone()
+                return result[0] if result else default
+        except Exception as e:
+            logger.error(f"❌ Error getting setting {key}: {e}")
+            return default
+    
+    def set_setting(self, key: str, value: str) -> bool:
+        """
+        Set a bot setting value (persistent).
+        
+        Returns: True if successful
+        """
+        try:
+            with sqlite3.connect(self.db_file) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT OR REPLACE INTO bot_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                    (key, value)
+                )
+                conn.commit()
+            logger.info(f"✅ Setting updated: {key} = {value}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error setting {key}: {e}")
+            return False
+    
+    def is_gambling_enabled(self) -> bool:
+        """Check if gambling system is enabled."""
+        value = self.get_setting("gambling_enabled", "true")
+        return value.lower() == "true"
+    
+    def set_gambling_enabled(self, enabled: bool) -> bool:
+        """Enable or disable gambling system."""
+        value = "true" if enabled else "false"
+        return self.set_setting("gambling_enabled", value)

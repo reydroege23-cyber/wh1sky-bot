@@ -315,6 +315,66 @@ async def cleanup_fake_users(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"❌ Cleanup failed: {e}", parse_mode="Markdown")
 
 @owner_only
+async def cleanup_fake_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Admin command: Remove all FAKE/INVALID user IDs from database.
+    
+    Usage: /cleanupfake
+    
+    This command:
+    ✔ Identifies all invalid Telegram user IDs (< 100000000, suspicious patterns, etc.)
+    ✔ Removes them from database
+    ✔ Logs all removed IDs
+    ✔ Shows verification report
+    """
+    try:
+        user_id = update.effective_user.id
+        
+        # Get list of fake users before cleanup
+        fake_users = economy.get_fake_users_list()
+        
+        if not fake_users:
+            await update.message.reply_text(
+                "✅ **Database Clean!**\n\nNo fake users found. Leaderboard is healthy!",
+                parse_mode="Markdown"
+            )
+            logger.info(f"🔍 Admin {user_id} ran cleanup check - no fake users found")
+            return
+        
+        # Show fake users to be removed
+        fake_ids_str = ", ".join(str(uid) for uid in fake_users[:10])
+        if len(fake_users) > 10:
+            fake_ids_str += f", ... and {len(fake_users) - 10} more"
+        
+        await update.message.reply_text(
+            f"🗑️ **Cleaning Database...**\n\nFound {len(fake_users)} fake user(s):\n`{fake_ids_str}`\n\nRemoving...",
+            parse_mode="Markdown"
+        )
+        
+        # Perform cleanup
+        result = economy.cleanup_fake_users()
+        
+        # Show results
+        if result['removed_count'] > 0:
+            removed_msg = f"✅ **Cleanup Complete!**\n\n"
+            removed_msg += f"🗑️ Removed: **{result['removed_count']}** fake user(s)\n"
+            removed_msg += f"📋 IDs: `{', '.join(str(uid) for uid in result['removed_ids'][:20])}`"
+            
+            if len(result['removed_ids']) > 20:
+                removed_msg += f"\n... and {len(result['removed_ids']) - 20} more"
+            
+            removed_msg += "\n\n✔️ Leaderboard is now clean!"
+        else:
+            removed_msg = "✅ **Cleanup Complete!**\n\nNo changes needed."
+        
+        await update.message.reply_text(removed_msg, parse_mode="Markdown")
+        logger.info(f"🗑️ Admin {user_id} cleaned database: removed {result['removed_count']} fake users")
+        
+    except Exception as e:
+        logger.error(f"❌ Cleanup error: {e}")
+        await update.message.reply_text(f"❌ Cleanup failed: {e}", parse_mode="Markdown")
+
+@owner_only
 async def check_fake_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Admin command: Check for fake users WITHOUT deleting.
