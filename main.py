@@ -1828,21 +1828,6 @@ Pure entertainment! 🎮
 • `/achievements` - View unlocked achievements
 • `/profile` - Detailed player profile & stats
 • `/rank` - Your rank on leaderboard
-
-**🎲 FUN COMMANDS:**
-• `/roll [sides]` - Roll dice
-• `/coin` - Flip a coin
-• `/8ball` - Magic 8 ball
-• `/joke` - Random joke
-• `/fact` - Interesting fact
-• `/roast` - Funny roast
-• `/rate <thing>` - Rate something
-
-**🤖 UTILITY:**
-• `/calc <expression>` - Calculator
-• `/echo <text>` - Echo text
-• `/time` - Current time
-• `/help` - Full commands menu
         """
         await update.message.reply_text(full_msg, parse_mode="Markdown")
         logger.info(f"💰 {user_id} checked balance: {coins} coins")
