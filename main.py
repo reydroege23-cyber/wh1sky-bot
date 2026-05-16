@@ -1834,132 +1834,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Balance error: {e}")
         await update.message.reply_text(error_msg("Could not retrieve balance"))
 
-@user_tracking
-@rate_limit(cooldown_type="command", cooldown_seconds=2)
-async def gambling_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    🚫 DISABLE gambling system (OWNER ONLY)
-    
-    All gambling games freeze:
-    - /bj, /coinflip, /slots, /dicegame, /roulette
-    - /daily, /sendcoins
-    
-    Bot continues working normally.
-    Setting persists across restarts.
-    """
-    try:
-        user_id = update.effective_user.id
-        logger.info(f"[/gamblingoff] Called by user {user_id}")
-        
-        # ===== OWNER ONLY =====
-        if user_id != OWNER_ID:
-            logger.warning(f"[/gamblingoff] Unauthorized attempt by {user_id} (Owner: {OWNER_ID})")
-            await update.message.reply_text("❌ You are not authorized to use this command.")
-            return
-        
-        logger.info(f"[/gamblingoff] Owner verification passed for {user_id}")
-        
-        # Check current status
-        is_enabled = economy.db.is_gambling_enabled()
-        logger.info(f"[/gamblingoff] Current state: gambling_enabled={is_enabled}")
-        
-        if not is_enabled:
-            logger.info(f"[/gamblingoff] Gambling already disabled")
-            await update.message.reply_text(
-                "🚫 Gambling system is ALREADY DISABLED.\n\n"
-                "💡 Use /gamblingon to re-enable it."
-            )
-            return
-        
-        # Disable gambling
-        logger.info(f"[/gamblingoff] Setting gambling_enabled to False")
-        result = economy.db.set_gambling_enabled(False)
-        logger.info(f"[/gamblingoff] Database update result: {result}")
-        
-        # Confirm to owner
-        msg = (
-            "🚫 **GAMBLING SYSTEM DISABLED**\n\n"
-            "━━━━━━━━━━━━━━━━━\n"
-            "✔ All gambling games are now OFFLINE\n"
-            "✔ /daily is DISABLED\n"
-            "✔ /sendcoins is DISABLED\n"
-            "✔ Balances are frozen (SAFE)\n"
-            "✔ Bot continues working normally\n"
-            "✔ Setting is PERSISTENT\n\n"
-            "💡 Use /gamblingon to re-enable"
-        )
-        await update.message.reply_text(msg, parse_mode="Markdown")
-        logger.info(f"[/gamblingoff] ✅ Gambling system DISABLED by {user_id}")
-        
-    except Exception as e:
-        logger.error(f"[/gamblingoff] ❌ Error: {type(e).__name__}: {e}", exc_info=True)
-        try:
-            await update.message.reply_text("❌ Failed to disable gambling. Check logs.")
-        except Exception as send_error:
-            logger.error(f"[/gamblingoff] Failed to send error message: {send_error}")
 
-@user_tracking
-@rate_limit(cooldown_type="command", cooldown_seconds=2)
-async def gambling_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    ✅ ENABLE gambling system (OWNER ONLY)
-    
-    All gambling games resume:
-    - /bj, /coinflip, /slots, /dicegame, /roulette
-    - /daily, /sendcoins
-    
-    Setting persists across restarts.
-    """
-    try:
-        user_id = update.effective_user.id
-        logger.info(f"[/gamblingon] Called by user {user_id}")
-        
-        # ===== OWNER ONLY =====
-        if user_id != OWNER_ID:
-            logger.warning(f"[/gamblingon] Unauthorized attempt by {user_id} (Owner: {OWNER_ID})")
-            await update.message.reply_text("❌ You are not authorized to use this command.")
-            return
-        
-        logger.info(f"[/gamblingon] Owner verification passed for {user_id}")
-        
-        # Check current status
-        is_enabled = economy.db.is_gambling_enabled()
-        logger.info(f"[/gamblingon] Current state: gambling_enabled={is_enabled}")
-        
-        if is_enabled:
-            logger.info(f"[/gamblingon] Gambling already enabled")
-            await update.message.reply_text(
-                "✅ Gambling system is ALREADY ENABLED.\n\n"
-                "💡 Use /gamblingoff to disable it."
-            )
-            return
-        
-        # Enable gambling
-        logger.info(f"[/gamblingon] Setting gambling_enabled to True")
-        result = economy.db.set_gambling_enabled(True)
-        logger.info(f"[/gamblingon] Database update result: {result}")
-        
-        # Confirm to owner
-        msg = (
-            "✅ **GAMBLING SYSTEM ENABLED**\n\n"
-            "━━━━━━━━━━━━━━━━━\n"
-            "✔ All gambling games are now ONLINE\n"
-            "✔ /daily is ENABLED\n"
-            "✔ /sendcoins is ENABLED\n"
-            "✔ Balances are active\n"
-            "✔ Bot is fully functional\n"
-            "✔ Setting is PERSISTENT\n\n"
-            "💡 Use /gamblingoff to disable"
-        )
-        await update.message.reply_text(msg, parse_mode="Markdown")
-        logger.info(f"[/gamblingon] ✅ Gambling system ENABLED by {user_id}")
-        
-    except Exception as e:
-        logger.error(f"[/gamblingon] ❌ Error: {type(e).__name__}: {e}", exc_info=True)
-        try:
-            await update.message.reply_text("❌ Failed to enable gambling. Check logs.")
-        except Exception as send_error:
-            logger.error(f"[/gamblingon] Failed to send error message: {send_error}")
 
 @user_tracking
 @rate_limit(cooldown_type="command", cooldown_seconds=2)
@@ -1967,11 +1842,6 @@ async def daily(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Claim daily free coins - beautiful UI."""
     try:
         user_id = update.effective_user.id
-        
-        # Check if gambling is enabled
-        if not economy.db.is_gambling_enabled():
-            await update.message.reply_text("🚫 Gambling system is currently disabled.")
-            return
         
         success, msg, coins_gained = economy.claim_daily(user_id)
         save_data(bot_data)
@@ -2014,11 +1884,6 @@ async def sendcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         sender_id = update.effective_user.id
         sender_name = update.effective_user.first_name or "Player"
-        
-        # Check if gambling is enabled
-        if not economy.db.is_gambling_enabled():
-            await update.message.reply_text("🚫 Gambling system is currently disabled.")
-            return
         
         # =====================
         # PARSE ARGUMENTS & VALIDATE
@@ -2278,11 +2143,6 @@ async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id
         
-        # Check if gambling is enabled
-        if not economy.db.is_gambling_enabled():
-            await update.message.reply_text("🚫 Gambling system is currently disabled.")
-            return
-        
         # Parse bet amount
         if not context.args:
             await update.message.reply_text(error_msg("Usage: /coinflip 10"), parse_mode="Markdown")
@@ -2365,11 +2225,6 @@ async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Slot machine gambling game with animation."""
     try:
         user_id = update.effective_user.id
-        
-        # Check if gambling is enabled
-        if not economy.db.is_gambling_enabled():
-            await update.message.reply_text("🚫 Gambling system is currently disabled.")
-            return
         
         # Parse bet amount
         if not context.args:
@@ -2456,11 +2311,6 @@ async def dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Dice gambling game with animation."""
     try:
         user_id = update.effective_user.id
-        
-        # Check if gambling is enabled
-        if not economy.db.is_gambling_enabled():
-            await update.message.reply_text("🚫 Gambling system is currently disabled.")
-            return
         
         # Parse bet amount
         if not context.args:
@@ -2575,11 +2425,6 @@ async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id
         
-        # Check if gambling is enabled
-        if not economy.db.is_gambling_enabled():
-            await update.message.reply_text("🚫 Gambling system is currently disabled.")
-            return
-        
         # Parse arguments
         if len(context.args) < 2:
             await update.message.reply_text(
@@ -2683,11 +2528,6 @@ async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start a blackjack game. Usage: /bj <bet_amount>"""
     try:
         user_id = update.effective_user.id
-        
-        # Check if gambling is enabled
-        if not economy.db.is_gambling_enabled():
-            await update.message.reply_text("🚫 Gambling system is currently disabled.")
-            return
         
         # Check if already in a game
         if user_id in blackjack.active_blackjack_games:
@@ -3922,8 +3762,6 @@ def setup_bot():
     app.add_handler(CommandHandler("goodnight", goodnight_cmd))
     
     # Economy Commands
-    app.add_handler(CommandHandler("gamblingoff", gambling_off))  # Owner only: disable gambling
-    app.add_handler(CommandHandler("gamblingon", gambling_on))    # Owner only: enable gambling
     app.add_handler(CommandHandler("balance", balance))
     app.add_handler(CommandHandler("daily", daily))
     app.add_handler(CommandHandler("sendcoins", sendcoins))
