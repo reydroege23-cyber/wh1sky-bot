@@ -129,26 +129,9 @@ STARTING_BALANCE = 100
 
 # Economy cooldowns (seconds)
 DAILY_COOLDOWN = 86400  # 24 hours
-GAMBLING_COOLDOWN = 2  # seconds between gambles
-
-# Betting limits
-MIN_BET = 1
-MAX_BET = 1000000
 
 # Daily reward amount
 DAILY_REWARD = 50
-
-# Gambling odds and rewards
-COINFLIP_ODDS = 50  # 50/50
-COINFLIP_MULTIPLIER = 2  # Win = 2x bet
-
-SLOTS_JACKPOT_CHANCE = 0.02  # 2% chance
-SLOTS_JACKPOT_MULTIPLIER = 10  # 10x bet for jackpot
-SLOTS_WIN_CHANCE = 0.30  # 30% chance to win
-SLOTS_WIN_MULTIPLIER = 1.5  # 1.5x bet for regular win
-
-DICE_WIN_CHANCE = 0.50  # 50% chance
-DICE_WIN_MULTIPLIER = 1.8  # 1.8x bet for win
 
 # =========================
 # FEATURE FLAGS

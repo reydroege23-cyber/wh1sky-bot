@@ -64,74 +64,6 @@ ACHIEVEMENTS = {
         "threshold": 1000000
     },
     
-    # 🎲 GAMBLING ACHIEVEMENTS
-    "first_bet": {
-        "name": "First Bet",
-        "description": "Placed your first bet",
-        "category": "Gambling",
-        "reward": 25,
-        "emoji": "🎲",
-        "threshold": 1
-    },
-    "gambler_10": {
-        "name": "Consistent Player",
-        "description": "Played 10 games",
-        "category": "Gambling",
-        "reward": 100,
-        "emoji": "🎮",
-        "threshold": 10
-    },
-    "gambler_100": {
-        "name": "Casino Regular",
-        "description": "Played 100 games",
-        "category": "Gambling",
-        "reward": 500,
-        "emoji": "🌟",
-        "threshold": 100
-    },
-    "lucky_winner": {
-        "name": "Lucky Winner",
-        "description": "Won 10 games",
-        "category": "Gambling",
-        "reward": 200,
-        "emoji": "🎯",
-        "threshold": 10
-    },
-    "jackpot_winner": {
-        "name": "Jackpot Winner",
-        "description": "Won 1,000+ coins in one bet",
-        "category": "Gambling",
-        "reward": 1000,
-        "emoji": "💥",
-        "threshold": 1000
-    },
-    
-    # 🔥 STREAK ACHIEVEMENTS
-    "streak_3": {
-        "name": "Hot Hand",
-        "description": "Won 3 games in a row",
-        "category": "Streak",
-        "reward": 150,
-        "emoji": "🔥",
-        "threshold": 3
-    },
-    "streak_10": {
-        "name": "On Fire",
-        "description": "Won 10 games in a row",
-        "category": "Streak",
-        "reward": 750,
-        "emoji": "🌡️",
-        "threshold": 10
-    },
-    "unstoppable": {
-        "name": "Unstoppable",
-        "description": "Won 25 games in a row",
-        "category": "Streak",
-        "reward": 5000,
-        "emoji": "⚡",
-        "threshold": 25
-    },
-    
     # 💸 ECONOMY ACHIEVEMENTS
     "first_transfer": {
         "name": "Generous",
@@ -255,25 +187,7 @@ class AchievementChecker:
             if achievement_key == "millionaire" and balance >= 1000000:
                 return True
             
-            # Gambling achievements
-            if achievement_key == "first_bet" and stats.get('games_played', 0) >= 1:
-                return True
-            if achievement_key == "gambler_10" and stats.get('games_played', 0) >= 10:
-                return True
-            if achievement_key == "gambler_100" and stats.get('games_played', 0) >= 100:
-                return True
-            if achievement_key == "lucky_winner" and stats.get('total_wins', 0) >= 10:
-                return True
-            if achievement_key == "jackpot_winner" and stats.get('biggest_win', 0) >= 1000:
-                return True
-            
-            # Streak achievements
-            if achievement_key == "streak_3" and stats.get('max_win_streak', 0) >= 3:
-                return True
-            if achievement_key == "streak_10" and stats.get('max_win_streak', 0) >= 10:
-                return True
-            if achievement_key == "unstoppable" and stats.get('max_win_streak', 0) >= 25:
-                return True
+            # Non-gambling achievements
             
             # Economy achievements
             if achievement_key == "first_transfer" and stats.get('coins_sent', 0) >= 1:
@@ -367,12 +281,6 @@ def format_profile_card(user_id: int, db: EconomyDatabase) -> str:
 ║   👤 PLAYER PROFILE - {username:<17}║
 ╠══════════════════════════════════╣
 ║ 💰 Balance: {balance:>25} coins│
-║ 🎮 Games: {stats.get('games_played', 0):>26}│
-║ ✅ Wins: {stats.get('total_wins', 0):>27}│
-║ ❌ Losses: {stats.get('total_losses', 0):>24}│
-║ 🔥 Win Streak: {stats.get('win_streak', 0):>20}│
-║ ⚡ Max Streak: {stats.get('max_win_streak', 0):>19}│
-║ 💎 Biggest Win: {stats.get('biggest_win', 0):>18}│
 ╠══════════════════════════════════╣
 ║ 🏆 Achievements: {unlocked_count:>2}/{total_achievements} ({completion}%) ║
 ╠══════════════════════════════════╣

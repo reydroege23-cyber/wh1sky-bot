@@ -16,8 +16,6 @@ from datetime import datetime, timedelta
 from typing import List
 from config import (
     STARTING_BALANCE, 
-    MIN_BET, 
-    MAX_BET,
     DAILY_REWARD,
     DAILY_COOLDOWN,
 )
@@ -75,7 +73,7 @@ class Economy:
         Args:
             user_id: User's Telegram ID
             amount: Coins to add
-            reason: Log reason (e.g., "Roulette win", "Daily reward")
+            reason: Log reason (e.g., "Daily reward", "Admin grant")
         
         Returns: True if successful
         """
@@ -97,7 +95,7 @@ class Economy:
         Args:
             user_id: User's Telegram ID
             amount: Coins to remove
-            reason: Log reason (e.g., "Roulette bet", "Coinflip loss")
+            reason: Log reason (e.g., "Coin transfer", "Admin removal")
         
         Returns: True if successful
         """
@@ -142,63 +140,7 @@ class Economy:
         """
         return self.db.update_user_info(user_id, username, first_name)
     
-    # ========================================
-    # WIN/LOSS TRACKING (PERSISTENT)
-    # ========================================
-    
-    def record_win(self, user_id: int, bet_amount: int, winnings: int, game_name: str = "") -> bool:
-        """
-        Record a game win (atomic operation).
-        
-        Args:
-            user_id: User's Telegram ID
-            bet_amount: Amount wagered
-            winnings: Amount won (coins gained)
-            game_name: Game type (e.g., "Coinflip", "Slots")
-        
-        Returns: True if successful
-        """
-        success = self.db.increment_wins(user_id)
-        if success:
-            logger.info(f"🎉 {game_name} WIN for {user_id}: wagered {bet_amount}, won {winnings} coins")
-        return success
-    
-    def record_loss(self, user_id: int, bet_amount: int, game_name: str = "") -> bool:
-        """
-        Record a game loss (atomic operation).
-        
-        Args:
-            user_id: User's Telegram ID
-            bet_amount: Amount wagered
-            game_name: Game type (e.g., "Coinflip", "Slots")
-        
-        Returns: True if successful
-        """
-        success = self.db.increment_losses(user_id)
-        if success:
-            logger.info(f"😢 {game_name} LOSS for {user_id}: lost {bet_amount} coins")
-        return success
-    
-    # ========================================
-    # BETTING VALIDATION
-    # ========================================
-    
-    def validate_bet(self, bet_amount: int, current_balance: int) -> tuple:
-        """
-        Validate bet is within limits.
-        
-        Returns: (is_valid: bool, message: str)
-        """
-        if bet_amount < MIN_BET:
-            return False, f"❌ Minimum bet: **{MIN_BET}** coins"
-        
-        if bet_amount > MAX_BET:
-            return False, f"❌ Maximum bet: **{MAX_BET}** coins"
-        
-        if bet_amount > current_balance:
-            return False, f"❌ Insufficient balance! You have **{current_balance}** coins"
-        
-        return True, "✅ Bet valid"
+
     
     # ========================================
     # DAILY REWARDS (PERSISTENT COOLDOWN)

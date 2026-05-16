@@ -223,15 +223,13 @@ class EconomyDatabase:
             with sqlite3.connect(self.db_file) as conn:
                 cursor = conn.cursor()
                 
-                # Create users table with all persistence columns
+                # Create users table with persistence columns
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS users (
                         user_id INTEGER PRIMARY KEY,
                         username TEXT,
                         first_name TEXT,
                         balance INTEGER DEFAULT 100,
-                        total_wins INTEGER DEFAULT 0,
-                        total_losses INTEGER DEFAULT 0,
                         daily_claim_timestamp TIMESTAMP,
                         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -252,15 +250,8 @@ class EconomyDatabase:
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS player_stats (
                         user_id INTEGER PRIMARY KEY,
-                        total_wins INTEGER DEFAULT 0,
-                        total_losses INTEGER DEFAULT 0,
-                        total_bets INTEGER DEFAULT 0,
-                        biggest_win INTEGER DEFAULT 0,
                         coins_sent INTEGER DEFAULT 0,
                         coins_received INTEGER DEFAULT 0,
-                        win_streak INTEGER DEFAULT 0,
-                        max_win_streak INTEGER DEFAULT 0,
-                        games_played INTEGER DEFAULT 0,
                         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY(user_id) REFERENCES users(user_id)
                     )
@@ -279,12 +270,8 @@ class EconomyDatabase:
                     CREATE INDEX IF NOT EXISTS idx_achievements_user 
                     ON achievements(user_id)
                 """)
-                cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_player_stats_wins 
-                    ON player_stats(total_wins DESC)
-                """)
                 
-                # Create bot settings table (for gambling ON/OFF, etc.)
+                # Create bot settings table
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS bot_settings (
                         key TEXT PRIMARY KEY,
@@ -292,12 +279,6 @@ class EconomyDatabase:
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-                
-                # Initialize gambling_enabled setting if not exists
-                cursor.execute(
-                    "INSERT OR IGNORE INTO bot_settings (key, value) VALUES (?, ?)",
-                    ("gambling_enabled", "true")
-                )
                 
                 conn.commit()
                 
@@ -458,39 +439,7 @@ class EconomyDatabase:
             logger.error(f"❌ Error updating user info for {user_id}: {e}")
             return False
     
-    def increment_wins(self, user_id: int) -> bool:
-        """Increment win count."""
-        try:
-            self.register_user(user_id)
-            with sqlite3.connect(self.db_file) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE users
-                    SET total_wins = total_wins + 1, last_updated = CURRENT_TIMESTAMP
-                    WHERE user_id = ?
-                """, (user_id,))
-                conn.commit()
-            return True
-        except Exception as e:
-            logger.error(f"❌ Error incrementing wins for {user_id}: {e}")
-            return False
-    
-    def increment_losses(self, user_id: int) -> bool:
-        """Increment loss count."""
-        try:
-            self.register_user(user_id)
-            with sqlite3.connect(self.db_file) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE users
-                    SET total_losses = total_losses + 1, last_updated = CURRENT_TIMESTAMP
-                    WHERE user_id = ?
-                """, (user_id,))
-                conn.commit()
-            return True
-        except Exception as e:
-            logger.error(f"❌ Error incrementing losses for {user_id}: {e}")
-            return False
+
     
     def get_user_count(self) -> int:
         """Get total number of users in economy."""
@@ -682,15 +631,8 @@ class EconomyDatabase:
                     conn.commit()
                     return {
                         'user_id': user_id,
-                        'total_wins': 0,
-                        'total_losses': 0,
-                        'total_bets': 0,
-                        'biggest_win': 0,
                         'coins_sent': 0,
-                        'coins_received': 0,
-                        'win_streak': 0,
-                        'max_win_streak': 0,
-                        'games_played': 0
+                        'coins_received': 0
                     }
         except Exception as e:
             logger.error(f"❌ Error getting player stats: {e}")
@@ -883,12 +825,4 @@ class EconomyDatabase:
             logger.error(f"❌ Error setting {key}: {e}")
             return False
     
-    def is_gambling_enabled(self) -> bool:
-        """Check if gambling system is enabled."""
-        value = self.get_setting("gambling_enabled", "true")
-        return value.lower() == "true"
-    
-    def set_gambling_enabled(self, enabled: bool) -> bool:
-        """Enable or disable gambling system."""
-        value = "true" if enabled else "false"
-        return self.set_setting("gambling_enabled", value)
+

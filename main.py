@@ -30,21 +30,15 @@ import os
 # =========================
 
 from economy import Economy
-from gambling import GamblingGames
 from achievements import AchievementChecker, format_achievements_display, format_profile_card, format_leaderboard_with_rank
 from ui_animations import (
-    format_result,
     format_balance_card,
     format_daily_reward,
     format_leaderboard,
     error_msg,
-    success_msg,
-    animate_coin_flip,
-    animate_slots,
-    animate_dice_roll
+    success_msg
 )
 import admin_economy
-import blackjack
 
 # =========================
 # LOGGING SETUP (ENHANCED)
@@ -120,7 +114,6 @@ bot_data = load_data()
 
 # Initialize economy system
 economy = Economy(bot_data)
-gambling_games = GamblingGames()
 
 # Initialize achievement checker
 from database import EconomyDatabase
@@ -353,10 +346,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/balance` - Check your coin balance
 • `/daily` - Claim 50 free coins (24h cooldown)
 • `/sendcoins @user amount` - Send coins to another player
-• `/coinflip <amount>` - 50/50 game (2x multiplier)
-• `/slots <amount>` - Slot machine (jackpot possible)
-• `/dicegame <amount>` - Roll vs bot
-• `/roulette <amount>` - Roulette game
 • `/top` - Leaderboard (top 10 richest)
 
 **🏆 ACHIEVEMENT & PROFILE COMMANDS:**
@@ -504,7 +493,6 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 **✨ VERSION 3.0 - ECONOMY SYSTEM ADDED:**
 • ✅ Virtual coin economy system
-• ✅ Gambling games (coinflip, slots, dice)
 • ✅ Leaderboard system (/top)
 • ✅ Daily rewards (/daily)
 • ✅ Owner-only admin economy commands
@@ -512,9 +500,7 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 **💰 ECONOMY COMMANDS:**
 • /balance - Check your coins
 • /daily - Claim 50 free coins (24h)
-• /coinflip <amount> - 50/50 game
-• /slots <amount> - Slot machine
-• /dicegame <amount> - Dice game
+• /sendcoins - Transfer coins to users
 • /top - Leaderboard
 
 **⚠️ DISCLAIMER**: Virtual currency only! No real money, crypto, or withdrawals. Entertainment only!
@@ -1814,14 +1800,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/sendcoins @user amount` - Send coins to player
 • `/top` - Leaderboard (top 10 richest)
 
-**🎮 GAMBLING GAMES:**
-• `/bj <amount>` - Blackjack
-• `/coinflip <amount>` - 50/50 game (2x multiplier)
-• `/slots <amount>` - Slot machine (jackpot possible)
-• `/dicegame <amount>` - Roll vs bot
-• `/roulette <amount>` - Roulette game
-
-**🏆 ACHIEVEMENTS & PROFILE:**
+** ACHIEVEMENTS & PROFILE:**
 • `/achievements` - View unlocked achievements
 • `/profile` - Detailed player profile & stats
 • `/rank` - Your rank on leaderboard
@@ -2136,254 +2115,11 @@ async def rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-@user_tracking
-@rate_limit(cooldown_type="command", cooldown_seconds=2)
-async def coinflip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Coinflip game with animation."""
-    try:
-        user_id = update.effective_user.id
-        
-        # Parse bet amount
-        if not context.args:
-            await update.message.reply_text(error_msg("Usage: /coinflip 10"), parse_mode="Markdown")
-            return
-        
-        try:
-            bet_amount = int(context.args[0])
-        except ValueError:
-            await update.message.reply_text(error_msg("Invalid amount"))
-            return
-        
-        current_balance = economy.get_balance(user_id)
-        
-        # Validate bet
-        valid, msg = economy.validate_bet(bet_amount, current_balance)
-        if not valid:
-            await update.message.reply_text(msg)
-            return
-        
-        # Show animation
-        anim_msg = await update.message.reply_text("🪙 Flipping coin...")
-        await asyncio.sleep(0.3)
-        await anim_msg.edit_text("🪙 Flipping coin .")
-        await asyncio.sleep(0.2)
-        await anim_msg.edit_text("🪙 Flipping coin ..")
-        await asyncio.sleep(0.2)
-        await anim_msg.edit_text("🪙 Flipping coin ...")
-        await asyncio.sleep(0.4)
-        
-        # Play game
-        result = gambling_games.coinflip(bet_amount)
-        
-        # Update balance and track win/loss (persistent)
-        if result['won']:
-            economy.add_coins(user_id, result['coins_won'], "Coinflip win")
-            economy.record_win(user_id, bet_amount, result['coins_won'], "Coinflip")
-            # Track achievement stats
-            achievement_db.increment_stat(user_id, 'total_wins', 1)
-            achievement_db.increment_stat(user_id, 'games_played', 1)
-            achievement_db.increment_stat(user_id, 'win_streak', 1)
-            
-            # Update max_win_streak if current streak is higher
-            stats = achievement_db.get_player_stats(user_id)
-            if stats.get('win_streak', 0) > stats.get('max_win_streak', 0):
-                achievement_db.set_stat(user_id, 'max_win_streak', stats.get('win_streak', 0))
-            
-            # Update biggest_win if applicable
-            if result['coins_won'] > stats.get('biggest_win', 0):
-                achievement_db.set_stat(user_id, 'biggest_win', result['coins_won'])
-        else:
-            economy.remove_coins(user_id, bet_amount, "Coinflip loss")
-            economy.record_loss(user_id, bet_amount, "Coinflip")
-            # Track achievement stats
-            achievement_db.increment_stat(user_id, 'total_losses', 1)
-            achievement_db.increment_stat(user_id, 'games_played', 1)
-            achievement_db.set_stat(user_id, 'win_streak', 0)  # Reset streak on loss
-        
-        achievement_db.increment_stat(user_id, 'total_bets', 1)
-        
-        # Check for new achievements
-        await achievement_checker.check_all_achievements(user_id, economy.get_balance(user_id))
-        
-        save_data(bot_data)
-        new_balance = economy.get_balance(user_id)
-        
-        # Format result
-        game_msg = format_result("COINFLIP", result)
-        game_msg += f"\n\n━━━━━━━━━━━━━━━━━\n💰 Balance: **{current_balance}** → **{new_balance}**\n━━━━━━━━━━━━━━━━━"
-        
-        await anim_msg.delete()
-        await update.message.reply_text(game_msg, parse_mode="Markdown")
-        logger.info(f"🪙 {user_id} played coinflip: {bet_amount}, Won: {result['won']}")
-    except Exception as e:
-        logger.error(f"Coinflip error: {e}")
-        await update.message.reply_text(error_msg("Game error"))
 
-@user_tracking
-@rate_limit(cooldown_type="command", cooldown_seconds=2)
-async def slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Slot machine gambling game with animation."""
-    try:
-        user_id = update.effective_user.id
-        
-        # Parse bet amount
-        if not context.args:
-            await update.message.reply_text(error_msg("Usage: /slots 100"), parse_mode="Markdown")
-            return
-        
-        try:
-            bet_amount = int(context.args[0])
-        except ValueError:
-            await update.message.reply_text(error_msg("Invalid amount"))
-            return
-        
-        current_balance = economy.get_balance(user_id)
-        
-        # Validate bet
-        valid, msg = economy.validate_bet(bet_amount, current_balance)
-        if not valid:
-            await update.message.reply_text(msg)
-            return
-        
-        # Show animation
-        anim_msg = await update.message.reply_text("🎰 Spinning...")
-        animations = [
-            "🎰 [🍎] [🍊] [🍋]",
-            "🎰 [🍊] [🍋] [🍌]",
-            "🎰 [🍋] [🍌] [🍉]",
-            "🎰 [🍌] [🍉] [💎]",
-        ]
-        
-        for anim in animations:
-            await anim_msg.edit_text(anim)
-            await asyncio.sleep(0.2)
-        
-        await asyncio.sleep(0.4)
-        
-        # Play game
-        result = gambling_games.slots(bet_amount)
-        
-        # Update balance and track win/loss (persistent)
-        if result['won']:
-            economy.add_coins(user_id, result['coins_won'], "Slots win")
-            economy.record_win(user_id, bet_amount, result['coins_won'], "Slots")
-            # Track achievement stats
-            achievement_db.increment_stat(user_id, 'total_wins', 1)
-            achievement_db.increment_stat(user_id, 'games_played', 1)
-            achievement_db.increment_stat(user_id, 'win_streak', 1)
-            
-            stats = achievement_db.get_player_stats(user_id)
-            if stats.get('win_streak', 0) > stats.get('max_win_streak', 0):
-                achievement_db.set_stat(user_id, 'max_win_streak', stats.get('win_streak', 0))
-            
-            if result['coins_won'] > stats.get('biggest_win', 0):
-                achievement_db.set_stat(user_id, 'biggest_win', result['coins_won'])
-        else:
-            economy.remove_coins(user_id, bet_amount, "Slots loss")
-            economy.record_loss(user_id, bet_amount, "Slots")
-            # Track achievement stats
-            achievement_db.increment_stat(user_id, 'total_losses', 1)
-            achievement_db.increment_stat(user_id, 'games_played', 1)
-            achievement_db.set_stat(user_id, 'win_streak', 0)
-        
-        achievement_db.increment_stat(user_id, 'total_bets', 1)
-        
-        # Check for new achievements
-        await achievement_checker.check_all_achievements(user_id, economy.get_balance(user_id))
-        
-        save_data(bot_data)
-        new_balance = economy.get_balance(user_id)
-        
-        # Format result
-        game_msg = format_result("SLOTS", result)
-        game_msg += f"\n{result['display']}\n\n━━━━━━━━━━━━━━━━━\n💰 Balance: **{current_balance}** → **{new_balance}**\n━━━━━━━━━━━━━━━━━"
-        
-        await anim_msg.delete()
-        await update.message.reply_text(game_msg, parse_mode="Markdown")
-        logger.info(f"🎰 {user_id} played slots: {bet_amount}, Won: {result['won']}")
-    except Exception as e:
-        logger.error(f"Slots error: {e}")
-        await update.message.reply_text(error_msg("Game error"))
 
-@user_tracking
-@rate_limit(cooldown_type="command", cooldown_seconds=2)
-async def dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Dice gambling game with animation."""
-    try:
-        user_id = update.effective_user.id
-        
-        # Parse bet amount
-        if not context.args:
-            await update.message.reply_text(error_msg("Usage: /dicegame 100"), parse_mode="Markdown")
-            return
-        
-        try:
-            bet_amount = int(context.args[0])
-        except ValueError:
-            await update.message.reply_text(error_msg("Invalid amount"))
-            return
-        
-        current_balance = economy.get_balance(user_id)
-        
-        # Validate bet
-        valid, msg = economy.validate_bet(bet_amount, current_balance)
-        if not valid:
-            await update.message.reply_text(msg)
-            return
-        
-        # Show animation
-        anim_msg = await update.message.reply_text("🎲 Rolling...")
-        
-        for i in range(1, 7):
-            await anim_msg.edit_text(f"🎲 Rolling... {i}")
-            await asyncio.sleep(0.1)
-        
-        await asyncio.sleep(0.4)
-        
-        # Play game
-        result = gambling_games.dice(bet_amount)
-        
-        # Update balance and track win/loss (persistent)
-        if result['coins_won'] > 0:
-            economy.add_coins(user_id, result['coins_won'], "Dice win")
-            economy.record_win(user_id, bet_amount, result['coins_won'], "Dice")
-            # Track achievement stats
-            achievement_db.increment_stat(user_id, 'total_wins', 1)
-            achievement_db.increment_stat(user_id, 'games_played', 1)
-            achievement_db.increment_stat(user_id, 'win_streak', 1)
-            
-            stats = achievement_db.get_player_stats(user_id)
-            if stats.get('win_streak', 0) > stats.get('max_win_streak', 0):
-                achievement_db.set_stat(user_id, 'max_win_streak', stats.get('win_streak', 0))
-            
-            if result['coins_won'] > stats.get('biggest_win', 0):
-                achievement_db.set_stat(user_id, 'biggest_win', result['coins_won'])
-        elif result['coins_won'] < 0:
-            economy.remove_coins(user_id, bet_amount, "Dice loss")
-            economy.record_loss(user_id, bet_amount, "Dice")
-            # Track achievement stats
-            achievement_db.increment_stat(user_id, 'total_losses', 1)
-            achievement_db.increment_stat(user_id, 'games_played', 1)
-            achievement_db.set_stat(user_id, 'win_streak', 0)
-        
-        achievement_db.increment_stat(user_id, 'total_bets', 1)
-        
-        # Check for new achievements
-        await achievement_checker.check_all_achievements(user_id, economy.get_balance(user_id))
-        
-        save_data(bot_data)
-        new_balance = economy.get_balance(user_id)
-        
-        # Format result
-        game_msg = format_result("DICE", result)
-        game_msg += f"\n{result['emoji']} {result['result']}\n\n━━━━━━━━━━━━━━━━━\n💰 Balance: **{current_balance}** → **{new_balance}**\n━━━━━━━━━━━━━━━━━"
-        
-        await anim_msg.delete()
-        await update.message.reply_text(game_msg, parse_mode="Markdown")
-        logger.info(f"🎲 {user_id} played dice: {bet_amount}, Won: {result['coins_won'] > 0}")
-    except Exception as e:
-        logger.error(f"Dice error: {e}")
-        await update.message.reply_text(error_msg("Game error"))
+
+
+
 
 @user_tracking
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2405,493 +2141,21 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Leaderboard error: {e}")
         await update.message.reply_text(error_msg("Could not retrieve leaderboard"))
 
-# =========================
-# ROULETTE GAME (NO-LAG)
-# =========================
-
-@user_tracking
-@rate_limit(cooldown_type="command", cooldown_seconds=1)
-async def roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """🎡 European Roulette - Instant spin and result!
-    
-    Usage: /roulette <bet> <choice>
-    Choices: red, black, green, 0-36
-    
-    Payouts:
-    - Red/Black: 2x
-    - Single Number: 35x
-    - Green (0): 15x
-    """
-    try:
-        user_id = update.effective_user.id
-        
-        # Parse arguments
-        if len(context.args) < 2:
-            await update.message.reply_text(
-                "🎡 **ROULETTE**\n\n"
-                "💰 **Usage:** `/roulette <bet> <choice>`\n\n"
-                "**Choices:**\n"
-                "• `red` / `black` / `green`\n"
-                "• `0` - `36` (single number)\n\n"
-                f"**Payouts:**\n"
-                "• 🔴 Red/Black: 2x\n"
-                "• 🟢 Green: 15x\n"
-                "• 🎯 Single #: 35x\n\n"
-                f"**Example:** `/roulette 100 red`",
-                parse_mode="Markdown"
-            )
-            return
-        
-        try:
-            bet_amount = int(context.args[0])
-            choice = context.args[1].lower()
-        except ValueError:
-            await update.message.reply_text(error_msg("Invalid bet amount"))
-            return
-        
-        # Validate bet
-        current_balance = economy.get_balance(user_id)
-        valid, msg = economy.validate_bet(bet_amount, current_balance)
-        if not valid:
-            await update.message.reply_text(msg)
-            return
-        
-        # Validate choice
-        valid_colors = {'red', 'black', 'green'}
-        valid_choice = choice in valid_colors or (choice.isdigit() and 0 <= int(choice) <= 36)
-        
-        if not valid_choice:
-            await update.message.reply_text(
-                error_msg("❌ Invalid choice! Use red/black/green or 0-36")
-            )
-            return
-        
-        # Deduct bet
-        economy.remove_coins(user_id, bet_amount, "Roulette bet")
-        
-        # 🎡 INSTANT SPIN - No callback needed (auto-resolve)
-        result = gambling_games.roulette(bet_amount, choice)
-        
-        # Update balance and track win/loss (persistent)
-        if result['won']:
-            economy.add_coins(user_id, result['coins_won'], f"Roulette win - {choice}")
-            economy.record_win(user_id, bet_amount, result['coins_won'], "Roulette")
-            # Track achievement stats
-            achievement_db.increment_stat(user_id, 'total_wins', 1)
-            achievement_db.increment_stat(user_id, 'games_played', 1)
-            achievement_db.increment_stat(user_id, 'win_streak', 1)
-            
-            stats = achievement_db.get_player_stats(user_id)
-            if stats.get('win_streak', 0) > stats.get('max_win_streak', 0):
-                achievement_db.set_stat(user_id, 'max_win_streak', stats.get('win_streak', 0))
-            
-            if result['coins_won'] > stats.get('biggest_win', 0):
-                achievement_db.set_stat(user_id, 'biggest_win', result['coins_won'])
-        else:
-            economy.record_loss(user_id, bet_amount, "Roulette")
-            # Track achievement stats
-            achievement_db.increment_stat(user_id, 'total_losses', 1)
-            achievement_db.increment_stat(user_id, 'games_played', 1)
-            achievement_db.set_stat(user_id, 'win_streak', 0)
-        
-        achievement_db.increment_stat(user_id, 'total_bets', 1)
-        
-        # Check for new achievements
-        await achievement_checker.check_all_achievements(user_id, economy.get_balance(user_id))
-        
-        save_data(bot_data)
-        balance_after = economy.get_balance(user_id)
-        
-        # Show result immediately
-        result_text = (
-            f"{result['emoji']} **ROULETTE RESULT**\n\n"
-            f"{result['result']}\n\n"
-            f"━━━━━━━━━━━━━━━━━\n"
-            f"💰 **Balance:** {current_balance} → {balance_after}\n"
-            f"━━━━━━━━━━━━━━━━━"
-        )
-        
-        await update.message.reply_text(result_text, parse_mode="Markdown")
-        logger.info(f"🎡 {user_id} spun roulette: {choice}, Won: {result['won']}, Number: {result['number']}")
-        
-    except Exception as e:
-        logger.error(f"❌ Roulette error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        await update.message.reply_text(error_msg("Game error"))
-
-# =========================
-# BLACKJACK COMMANDS (COMMAND-BASED, NO CALLBACKS)
-# =========================
-
-@user_tracking
-@rate_limit(cooldown_type="command", cooldown_seconds=2)
-async def blackjack_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start a blackjack game. Usage: /bj <bet_amount>"""
-    try:
-        user_id = update.effective_user.id
-        
-        # Check if already in a game
-        if user_id in blackjack.active_blackjack_games:
-            await update.message.reply_text(
-                error_msg("You already have an active game!\nFinish with /stand or /surrender"),
-                parse_mode="Markdown"
-            )
-            return
-        
-        # Parse bet amount
-        if not context.args:
-            await update.message.reply_text(
-                error_msg("Usage: /bj 100"),
-                parse_mode="Markdown"
-            )
-            return
-        
-        try:
-            bet_amount = int(context.args[0])
-        except ValueError:
-            await update.message.reply_text(error_msg("Bet must be a number"), parse_mode="Markdown")
-            return
-        
-        current_balance = economy.get_balance(user_id)
-        
-        # Validate bet
-        valid, msg = economy.validate_bet(bet_amount, current_balance)
-        if not valid:
-            await update.message.reply_text(msg, parse_mode="Markdown")
-            return
-        
-        # Deduct bet from balance
-        economy.remove_coins(user_id, bet_amount, "Blackjack bet")
-        
-        # Create game
-        game = blackjack.create_game(user_id, bet_amount)
-        
-        # Show initial board
-        board = blackjack.format_game_status(user_id, show_dealer_cards=False)
-        
-        player_val = blackjack.hand_value(game["player"])
-        dealer_first = blackjack.card_value(game["dealer"][0])
-        
-        # Check for instant blackjack
-        if blackjack.is_blackjack(game["player"]):
-            actions = "🃏 You got BLACKJACK!\nWaiting for dealer...\n\nCommand: /stand"
-        else:
-            actions = "**Your options:**\n• `/hit` - Take another card\n• `/stand` - Keep your hand\n• `/double` - Double bet & 1 card\n• `/surrender` - Quit, lose half"
-        
-        msg_text = f"""{board}
-
-{actions}
-        """
-        
-        await update.message.reply_text(msg_text, parse_mode="Markdown")
-        logger.info(f"🎰 {user_id} started blackjack with bet {bet_amount}")
-        
-    except Exception as e:
-        logger.error(f"❌ Blackjack start error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        await update.message.reply_text(error_msg("Game error"), parse_mode="Markdown")
 
 
-@user_tracking
-@rate_limit(cooldown_type="command", cooldown_seconds=1)
-async def blackjack_hit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Player takes a hit. Usage: /hit"""
-    try:
-        user_id = update.effective_user.id
-        
-        # Check if in game
-        game = blackjack.get_game(user_id)
-        if not game:
-            await update.message.reply_text(error_msg("No active blackjack game"), parse_mode="Markdown")
-            return
-        
-        # Check if can hit
-        can_hit, msg = blackjack.can_hit(user_id)
-        if not can_hit:
-            await update.message.reply_text(error_msg(msg), parse_mode="Markdown")
-            return
-        
-        # Player hits
-        blackjack.player_hit(user_id)
-        
-        player_val = blackjack.hand_value(game["player"])
-        
-        board = blackjack.format_game_status(user_id, show_dealer_cards=False)
-        
-        # Check if busted
-        if player_val > 21:
-            board = blackjack.format_game_status(user_id, show_dealer_cards=False)
-            
-            # Dealer plays (auto-lose anyway)
-            blackjack.dealer_play(user_id)
-            
-            # Game over - player busted
-            outcome, multiplier = blackjack.determine_winner(user_id)
-            payout = int(game["bet"] * multiplier)
-            
-            result_msg = blackjack.format_game_result(user_id, outcome, payout)
-            
-            final_msg = f"""{board}
-
-{result_msg}
-
-💥 **YOU BUSTED!** Game Over.
-        """
-            
-            await update.message.reply_text(final_msg, parse_mode="Markdown")
-            blackjack.cleanup_game(user_id)
-            logger.info(f"💥 {user_id} busted at {player_val}")
-        else:
-            # Still in game
-            actions = "**Your options:**\n• `/hit` - Take another card\n• `/stand` - Keep your hand\n• `/double` - Double bet & 1 card"
-            
-            final_msg = f"""{board}
-
-{actions}
-            """
-            
-            await update.message.reply_text(final_msg, parse_mode="Markdown")
-        
-    except Exception as e:
-        logger.error(f"❌ Blackjack hit error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        await update.message.reply_text(error_msg("Game error"), parse_mode="Markdown")
 
 
-@user_tracking
-@rate_limit(cooldown_type="command", cooldown_seconds=1)
-async def blackjack_stand(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Player stands. Dealer plays. Game resolves."""
-    try:
-        user_id = update.effective_user.id
-        
-        # Check if in game
-        game = blackjack.get_game(user_id)
-        if not game:
-            await update.message.reply_text(error_msg("No active blackjack game"), parse_mode="Markdown")
-            return
-        
-        # Check if can stand
-        can_stand, msg = blackjack.can_stand(user_id)
-        if not can_stand:
-            await update.message.reply_text(error_msg(msg), parse_mode="Markdown")
-            return
-        
-        # Player stands
-        blackjack.player_stand(user_id)
-        
-        # Dealer plays
-        blackjack.dealer_play(user_id)
-        
-        # Determine winner
-        outcome, multiplier = blackjack.determine_winner(user_id)
-        payout = int(game["bet"] * multiplier)
-        
-        # Update balance
-        if payout > 0:
-            economy.add_coins(user_id, payout, f"Blackjack {outcome}")
-            economy.record_win(user_id, game["bet"], payout, "Blackjack")
-            achievement_db.increment_stat(user_id, 'total_wins', 1)
-            achievement_db.increment_stat(user_id, 'games_played', 1)
-            achievement_db.increment_stat(user_id, 'win_streak', 1)
-        else:
-            economy.record_loss(user_id, game["bet"], "Blackjack")
-            achievement_db.increment_stat(user_id, 'total_losses', 1)
-            achievement_db.increment_stat(user_id, 'games_played', 1)
-            achievement_db.set_stat(user_id, 'win_streak', 0)
-        
-        achievement_db.increment_stat(user_id, 'total_bets', 1)
-        
-        # Show final board
-        board = blackjack.format_game_status(user_id, show_dealer_cards=True)
-        result_msg = blackjack.format_game_result(user_id, outcome, payout)
-        
-        new_balance = economy.get_balance(user_id)
-        old_balance = new_balance - payout if payout > 0 else new_balance
-        
-        final_msg = f"""{board}
-
-{result_msg}
-
-💰 **Balance:** {old_balance} → {new_balance}
-        """
-        
-        await update.message.reply_text(final_msg, parse_mode="Markdown")
-        
-        # Check achievements
-        await achievement_checker.check_all_achievements(user_id, new_balance)
-        
-        save_data(bot_data)
-        blackjack.cleanup_game(user_id)
-        logger.info(f"🃏 {user_id} finished blackjack: {outcome}, payout: {payout}")
-        
-    except Exception as e:
-        logger.error(f"❌ Blackjack stand error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        await update.message.reply_text(error_msg("Game error"), parse_mode="Markdown")
 
 
-@user_tracking
-@rate_limit(cooldown_type="command", cooldown_seconds=1)
-async def blackjack_double(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Player doubles down. Doubles bet, gets 1 card, auto-stands."""
-    try:
-        user_id = update.effective_user.id
-        
-        # Check if in game
-        game = blackjack.get_game(user_id)
-        if not game:
-            await update.message.reply_text(error_msg("No active blackjack game"), parse_mode="Markdown")
-            return
-        
-        # Check if can double
-        can_double, msg = blackjack.can_double(user_id)
-        if not can_double:
-            await update.message.reply_text(error_msg(msg), parse_mode="Markdown")
-            return
-        
-        # Check if player has enough balance for doubled bet
-        additional_bet = game["bet"]
-        current_balance = economy.get_balance(user_id)
-        
-        if current_balance < additional_bet:
-            await update.message.reply_text(
-                error_msg(f"Insufficient balance to double!\nYou need {additional_bet} more coins"),
-                parse_mode="Markdown"
-            )
-            return
-        
-        # Deduct additional bet
-        economy.remove_coins(user_id, additional_bet, "Blackjack double")
-        
-        # Double down
-        blackjack.player_double(user_id)
-        
-        player_val = blackjack.hand_value(game["player"])
-        
-        board = blackjack.format_game_status(user_id, show_dealer_cards=False)
-        
-        # Check if busted
-        if player_val > 21:
-            # Dealer plays (auto-lose anyway)
-            blackjack.dealer_play(user_id)
-            
-            # Game over - player busted
-            outcome, multiplier = blackjack.determine_winner(user_id)
-            payout = int(game["bet"] * multiplier)
-            
-            result_msg = blackjack.format_game_result(user_id, outcome, payout)
-            
-            final_msg = f"""{board}
-
-{result_msg}
-
-💥 **YOU BUSTED!** Game Over.
-            """
-            
-            await update.message.reply_text(final_msg, parse_mode="Markdown")
-            blackjack.cleanup_game(user_id)
-            logger.info(f"💥 {user_id} busted after double at {player_val}")
-        else:
-            # Auto-dealer turn
-            blackjack.dealer_play(user_id)
-            
-            # Determine winner
-            outcome, multiplier = blackjack.determine_winner(user_id)
-            payout = int(game["bet"] * multiplier)
-            
-            # Update balance
-            if payout > 0:
-                economy.add_coins(user_id, payout, f"Blackjack {outcome} (doubled)")
-                economy.record_win(user_id, game["bet"], payout, "Blackjack")
-                achievement_db.increment_stat(user_id, 'total_wins', 1)
-                achievement_db.increment_stat(user_id, 'games_played', 1)
-                achievement_db.increment_stat(user_id, 'win_streak', 1)
-            else:
-                economy.record_loss(user_id, game["bet"], "Blackjack")
-                achievement_db.increment_stat(user_id, 'total_losses', 1)
-                achievement_db.increment_stat(user_id, 'games_played', 1)
-                achievement_db.set_stat(user_id, 'win_streak', 0)
-            
-            achievement_db.increment_stat(user_id, 'total_bets', 1)
-            
-            board = blackjack.format_game_status(user_id, show_dealer_cards=True)
-            result_msg = blackjack.format_game_result(user_id, outcome, payout)
-            
-            new_balance = economy.get_balance(user_id)
-            old_balance = new_balance - payout if payout > 0 else new_balance
-            
-            final_msg = f"""{board}
-
-{result_msg}
-
-💰 **Balance:** {old_balance} → {new_balance}
-            """
-            
-            await update.message.reply_text(final_msg, parse_mode="Markdown")
-            
-            # Check achievements
-            await achievement_checker.check_all_achievements(user_id, new_balance)
-            
-            save_data(bot_data)
-            blackjack.cleanup_game(user_id)
-            logger.info(f"🃏 {user_id} finished blackjack (doubled): {outcome}, payout: {payout}")
-        
-    except Exception as e:
-        logger.error(f"❌ Blackjack double error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        await update.message.reply_text(error_msg("Game error"), parse_mode="Markdown")
 
 
-@user_tracking
-@rate_limit(cooldown_type="command", cooldown_seconds=1)
-async def blackjack_surrender(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Player surrenders. Gets back 50% of bet."""
-    try:
-        user_id = update.effective_user.id
-        
-        # Check if in game
-        game = blackjack.get_game(user_id)
-        if not game:
-            await update.message.reply_text(error_msg("No active blackjack game"), parse_mode="Markdown")
-            return
-        
-        # Check if can surrender
-        can_surrender, msg = blackjack.can_surrender(user_id)
-        if not can_surrender:
-            await update.message.reply_text(error_msg(msg), parse_mode="Markdown")
-            return
-        
-        # Surrender - get back 50% of bet
-        success, refund = blackjack.player_surrender(user_id)
-        if not success:
-            await update.message.reply_text(error_msg("Cannot surrender now"), parse_mode="Markdown")
-            return
-        
-        # Add refund to balance
-        economy.add_coins(user_id, refund, "Blackjack surrender refund")
-        
-        # Track loss
-        economy.record_loss(user_id, game["bet"], "Blackjack (surrendered)")
-        achievement_db.increment_stat(user_id, 'games_played', 1)
-        achievement_db.set_stat(user_id, 'win_streak', 0)
-        
-        board = blackjack.format_game_status(user_id, show_dealer_cards=False)
-        
-        new_balance = economy.get_balance(user_id)
-        
-        final_msg = f"""{board}
 
-🏳️ **YOU SURRENDERED!**
 
-Refund: 50% = {refund} coins
-💰 **Balance:** {new_balance}
-        """
-        
-        await update.message.reply_text(final_msg, parse_mode="Markdown")
-        
-        save_data(bot_data)
-        blackjack.cleanup_game(user_id)
-        logger.info(f"🏳️ {user_id} surrendered blackjack, refund: {refund}")
-        
-    except Exception as e:
-        logger.error(f"❌ Blackjack surrender error: {type(e).__name__}: {e}\n{traceback.format_exc()}")
-        await update.message.reply_text(error_msg("Game error"), parse_mode="Markdown")
+
+
+
+
+
 
 # Admin Economy Commands
 
@@ -3765,17 +3029,6 @@ def setup_bot():
     app.add_handler(CommandHandler("balance", balance))
     app.add_handler(CommandHandler("daily", daily))
     app.add_handler(CommandHandler("sendcoins", sendcoins))
-    app.add_handler(CommandHandler("coinflip", coinflip))
-    app.add_handler(CommandHandler("slots", slots))
-    app.add_handler(CommandHandler("dicegame", dice_game))
-    app.add_handler(CommandHandler("roulette", roulette))
-    
-    # Blackjack Commands (Command-based, no callbacks)
-    app.add_handler(CommandHandler("bj", blackjack_start))
-    app.add_handler(CommandHandler("hit", blackjack_hit))
-    app.add_handler(CommandHandler("stand", blackjack_stand))
-    app.add_handler(CommandHandler("double", blackjack_double))
-    app.add_handler(CommandHandler("surrender", blackjack_surrender))
     
     app.add_handler(CommandHandler("top", top))
     app.add_handler(CommandHandler("achievements", achievements))
