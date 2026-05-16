@@ -1809,16 +1809,13 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         full_msg = f"""{card}
 
-⚠️ **DISCLAIMER**: Virtual currency only!
-No real money, crypto, or withdrawals.
-Pure entertainment! 🎮
-
 **💰 ECONOMY COMMANDS:**
 • `/daily` - Claim 50 free coins (24h)
 • `/sendcoins @user amount` - Send coins to player
 • `/top` - Leaderboard (top 10 richest)
 
 **🎮 GAMBLING GAMES:**
+• `/bj <amount>` - Blackjack
 • `/coinflip <amount>` - 50/50 game (2x multiplier)
 • `/slots <amount>` - Slot machine (jackpot possible)
 • `/dicegame <amount>` - Roll vs bot
@@ -1828,6 +1825,8 @@ Pure entertainment! 🎮
 • `/achievements` - View unlocked achievements
 • `/profile` - Detailed player profile & stats
 • `/rank` - Your rank on leaderboard
+
+💬 **if u poor ask daddy whisky for money**
         """
         await update.message.reply_text(full_msg, parse_mode="Markdown")
         logger.info(f"💰 {user_id} checked balance: {coins} coins")
