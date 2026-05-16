@@ -133,7 +133,7 @@ GAMBLING_COOLDOWN = 2  # seconds between gambles
 
 # Betting limits
 MIN_BET = 1
-MAX_BET = 1000
+MAX_BET = 10000
 
 # Daily reward amount
 DAILY_REWARD = 50

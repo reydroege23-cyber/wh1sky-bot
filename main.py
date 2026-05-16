@@ -1858,8 +1858,9 @@ async def sendcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Send coins to another player (ATOMIC, PERSISTENT).
     
     Usage:
-    1. Reply mode: /sendcoins 100
+    1. Reply mode (PREFERRED): /sendcoins 100 (reply to user's message)
     2. Mention mode: /sendcoins @username 100
+    3. Direct ID: /sendcoins 123456789 100
     
     Features:
     ✅ Database-only (no reset on restart)
@@ -1874,22 +1875,22 @@ async def sendcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sender_name = update.effective_user.first_name or "Player"
         
         # =====================
-        # PARSE ARGUMENTS
+        # PARSE ARGUMENTS & VALIDATE
         # =====================
         
         receiver_id = None
         receiver_name = None
         amount = None
         
-        # OPTION 1: Reply to message
+        # OPTION 1: Reply to message (MOST RELIABLE)
         if update.message.reply_to_message:
             receiver_id = update.message.reply_to_message.from_user.id
-            receiver_name = update.message.reply_to_message.from_user.first_name or "Player"
+            receiver_name = update.message.reply_to_message.from_user.first_name or f"User {receiver_id}"
             
             # Amount is in args[0]
             if not context.args or len(context.args) < 1:
                 await update.message.reply_text(
-                    error_msg("Usage (reply): /sendcoins 100"),
+                    error_msg("Usage: Reply to a message and type /sendcoins <amount>"),
                     parse_mode="Markdown"
                 )
                 return
@@ -1898,42 +1899,59 @@ async def sendcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 amount = int(context.args[0])
             except ValueError:
                 await update.message.reply_text(
-                    error_msg("Amount must be a number"),
+                    error_msg("Amount must be a number (e.g., /sendcoins 100)"),
                     parse_mode="Markdown"
                 )
                 return
         
-        # OPTION 2: Mention @user
+        # OPTION 2: Mention @username or direct user_id
         else:
             if not context.args or len(context.args) < 2:
                 await update.message.reply_text(
-                    error_msg("Usage (mention): /sendcoins @username 100"),
+                    error_msg(
+                        "Usage:\n"
+                        "1️⃣ Reply method (best): Reply to user & /sendcoins 100\n"
+                        "2️⃣ Mention: /sendcoins @username 100\n"
+                        "3️⃣ ID: /sendcoins 123456789 100"
+                    ),
                     parse_mode="Markdown"
                 )
                 return
             
             mention = context.args[0]
             
-            # Validate it's a mention
-            if not mention.startswith("@"):
-                await update.message.reply_text(
-                    error_msg("Please mention a user: /sendcoins @username 100"),
-                    parse_mode="Markdown"
-                )
-                return
+            # Try to parse as direct user_id
+            if mention.isdigit():
+                receiver_id = int(mention)
+                receiver_name = f"User {receiver_id}"
             
-            # Try to get user by mention
-            try:
-                user_obj = await context.bot.get_chat_member(
-                    chat_id=update.effective_chat.id,
-                    user_id=mention
-                )
-                receiver_id = user_obj.user.id
-                receiver_name = user_obj.user.first_name or "Player"
-            except Exception as e:
-                logger.warning(f"Failed to resolve mention {mention}: {e}")
+            # Try to parse as @username mention
+            elif mention.startswith("@"):
+                username = mention  # Keep the @ prefix for get_chat
+                try:
+                    # Get user by username using get_chat
+                    user_obj = await context.bot.get_chat(username)
+                    receiver_id = user_obj.id
+                    receiver_name = user_obj.first_name or f"@{username[1:]}"
+                    logger.info(f"Resolved mention {username} to user_id {receiver_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to resolve mention {mention}: {e}")
+                    await update.message.reply_text(
+                        error_msg(
+                            f"Could not find user {mention}.\n\n"
+                            f"Try: /sendcoins [user_id] [amount]\n"
+                            f"or reply to their message: /sendcoins 100"
+                        ),
+                        parse_mode="Markdown"
+                    )
+                    return
+            else:
                 await update.message.reply_text(
-                    error_msg(f"Could not find user {mention}"),
+                    error_msg(
+                        "Invalid format. Use:\n"
+                        "• /sendcoins @username 100\n"
+                        "• /sendcoins 123456789 100"
+                    ),
                     parse_mode="Markdown"
                 )
                 return
@@ -1943,13 +1961,50 @@ async def sendcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 amount = int(context.args[1])
             except (ValueError, IndexError):
                 await update.message.reply_text(
-                    error_msg("Amount must be a number: /sendcoins @user 100"),
+                    error_msg("Amount must be a valid number"),
                     parse_mode="Markdown"
                 )
                 return
         
         # =====================
-        # TRANSFER
+        # VALIDATION
+        # =====================
+        
+        if not receiver_id:
+            await update.message.reply_text(
+                error_msg("Could not identify recipient"),
+                parse_mode="Markdown"
+            )
+            return
+        
+        if amount <= 0:
+            await update.message.reply_text(
+                error_msg("Amount must be positive (greater than 0)"),
+                parse_mode="Markdown"
+            )
+            return
+        
+        if sender_id == receiver_id:
+            await update.message.reply_text(
+                error_msg("You cannot send coins to yourself"),
+                parse_mode="Markdown"
+            )
+            return
+        
+        sender_balance = economy.get_balance(sender_id)
+        if sender_balance < amount:
+            await update.message.reply_text(
+                error_msg(
+                    f"Insufficient balance!\n\n"
+                    f"You have: {sender_balance} coins\n"
+                    f"You need: {amount} coins"
+                ),
+                parse_mode="Markdown"
+            )
+            return
+        
+        # =====================
+        # TRANSFER (ATOMIC)
         # =====================
         
         success, message = economy.transfer_coins(sender_id, receiver_id, amount)
@@ -1966,21 +2021,23 @@ async def sendcoins(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await achievement_checker.check_all_achievements(sender_id, sender_balance)
             await achievement_checker.check_all_achievements(receiver_id, receiver_balance)
             
-            success_message = f"""✅ **TRANSFER COMPLETE**
+            success_message = f"""💸 **COIN TRANSFER COMPLETE**
 
-👤 From: {sender_name} ({sender_id})
-🎯 To: {receiver_name}
-💰 Amount: {amount} coins
+👤 From: {sender_name}
+📥 To: {receiver_name}
+💰 Amount: **{amount} coins**
 
-**New Balances:**
-• {sender_name}: {sender_balance} coins
-• {receiver_name}: {receiver_balance} coins
+━━━━━━━━━━━━━━━━━━━
+📊 Updated Balances
+━━━━━━━━━━━━━━━━━━━
+💵 {sender_name}: {sender_balance} coins
+💵 {receiver_name}: {receiver_balance} coins
 """
             await update.message.reply_text(success_message, parse_mode="Markdown")
-            logger.info(f"💸 Transfer: {sender_id} ({sender_name}) → {receiver_id} ({receiver_name}): {amount} coins")
+            logger.info(f"✅ Transfer: {sender_id} ({sender_name}) → {receiver_id} ({receiver_name}): {amount} coins")
         else:
             await update.message.reply_text(
-                error_msg(f"❌ Transfer failed: {message}"),
+                error_msg(f"Transfer failed: {message}"),
                 parse_mode="Markdown"
             )
     

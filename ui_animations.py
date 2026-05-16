@@ -128,16 +128,22 @@ def format_daily_reward(coins: int) -> str:
 def format_leaderboard(top_users: list) -> str:
     """Format top users leaderboard."""
     msg = "╔════════════════════════════╗\n"
-    msg += "║  🏆 **RICHEST USERS** 🏆  ║\n"
+    msg += "║  🏆 RICHEST USERS 🏆  ║\n"
     msg += "╠════════════════════════════╣\n"
     
     medals = ["🥇", "🥈", "🥉"]
     
     for idx, (user_id, balance) in enumerate(top_users[:10], 1):
-        medal = medals[idx-1] if idx <= 3 else f"{idx}️⃣"
-        # Limit user_id display to fit nicely
-        user_display = f"#{user_id}"[-8:]
-        msg += f"║ {medal} {user_display:8} {balance:8} coins ║\n"
+        if idx <= 3:
+            medal = medals[idx-1]
+        else:
+            medal = f"{idx}️⃣"
+        
+        # Format user_id as 8 digits (with leading zeros if needed)
+        user_display = str(user_id).zfill(8)
+        
+        # Format: ║ 🥇 07676185     7460 coins ║
+        msg += f"║ {medal} {user_display}     {balance:>4} coins ║\n"
     
     msg += "╚════════════════════════════╝"
     return msg
