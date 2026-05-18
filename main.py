@@ -2541,14 +2541,6 @@ def setup_bot():
     # Messages (must be last)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Create job queue to periodically save
-    job_queue = app.job_queue
-    job_queue.run_repeating(
-        lambda context: asyncio.create_task(flush_pending_saves()),
-        interval=DATA_SAVE_BATCH_INTERVAL,
-        first=DATA_SAVE_BATCH_INTERVAL
-    )
-    
     return app
 
 # =========================
