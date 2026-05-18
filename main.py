@@ -2394,6 +2394,310 @@ async def goodnight_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to send night message")
 
 # =========================
+# NEW TRENDY COMMANDS
+# =========================
+
+@user_tracking
+async def cooked(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Rate how cooked user is."""
+    try:
+        cooked_responses = [
+            "🍳 You're FULLY COOKED! 💀",
+            "🍗 MEDIUM RARE - still got some life left",
+            "🔥 BURNT TO CRISP! No coming back from this",
+            "🥓 Crispy on the edges, confused in the middle",
+            "☠️ CREMATED! Beyond recovery",
+            "🍤 SHRIMP COOKED! Turned pink with embarrassment",
+            "🧆 WELL DONE! Overcooked and overdone",
+            "🥘 Simmering in your own sauce",
+            "🔪 SLICED, DICED, AND SERVED! You're DONE",
+            "🌡️ Temperature: ABSOLUTE ZERO CHILL"
+        ]
+        response = random.choice(cooked_responses)
+        await update.message.reply_text(response)
+        logger.info(f"🍳 {update.effective_user.id} got cooked")
+    except Exception as e:
+        logger.error(f"Cooked error: {e}")
+        await update.message.reply_text("❌ Failed to cook")
+
+@user_tracking
+async def npc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """NPC simulator - generic NPC dialogue."""
+    try:
+        npc_responses = [
+            "*NPC SOUND* Beep boop! 🤖",
+            "Heard they're reforming the Dawnguard...",
+            "It's dangerous to go alone! Take this. 🗡️",
+            "Have you heard of the High Elves?",
+            "Something's wrong, I can feel it.",
+            "*nods in NPC* 👤",
+            "The princess is in another castle! 👸🏰",
+            "WASTED 💀",
+            "All you had to do was follow the damn train, CJ!",
+            "*loading dialogue...* 🔄",
+            "You must gather your party before venturing forth.",
+            "Looks like you've been hit with a poisoned arrow!"
+        ]
+        response = random.choice(npc_responses)
+        await update.message.reply_text(response)
+        logger.info(f"🤖 {update.effective_user.id} triggered NPC mode")
+    except Exception as e:
+        logger.error(f"NPC error: {e}")
+        await update.message.reply_text("❌ NPC malfunction")
+
+@user_tracking
+async def fbi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fake FBI report."""
+    try:
+        name = "User"
+        if update.message.reply_to_message:
+            name = update.message.reply_to_message.from_user.first_name or "User"
+        
+        report = f"""
+╔══════════════════════════════════╗
+║      🔴 FBI REPORT 🔴            ║
+╚══════════════════════════════════╝
+
+SUSPECT: {name}
+STATUS: SUSPICIOUS
+THREAT LEVEL: {random.choice(['CRITICAL', 'HIGH', 'MODERATE', 'OVER 9000'])} ⚠️
+
+CHARGES:
+• Being too sus
+• Questionable activity
+• Existing while suspicious
+• Potential gigachad behavior
+
+RECOMMENDATION: MONITOR CLOSELY 👁️
+        """
+        await update.message.reply_text(report, parse_mode="Markdown")
+        logger.info(f"🔴 {update.effective_user.id} got FBI report")
+    except Exception as e:
+        logger.error(f"FBI error: {e}")
+        await update.message.reply_text("❌ Failed to generate report")
+
+@user_tracking
+async def crime(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fake crime detector."""
+    try:
+        crimes = [
+            "🚨 CRIME DETECTED: Being adorable (not a crime)",
+            "🚔 CRIME: Existing with too much confidence",
+            "🔪 CRIME: Touching grass (highly illegal)",
+            "💥 CRIME: Touching the sacred ground (FORBIDDEN)",
+            "⚖️ CRIME: Speedrunning life (WR pace detected)",
+            "🎭 CRIME: Peak comedy performance",
+            "🏆 CRIME: Winning at life by accident",
+            "💀 CRIME: Being TOO COOKED",
+            "👻 CRIME: Haunting everyone with your presence",
+            "🌟 CRIME: Radiating too much main character energy"
+        ]
+        response = random.choice(crimes)
+        await update.message.reply_text(response)
+        logger.info(f"🚨 {update.effective_user.id} committed a crime")
+    except Exception as e:
+        logger.error(f"Crime error: {e}")
+        await update.message.reply_text("❌ Crime detector malfunction")
+
+@user_tracking
+async def villain(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Villain generator - generate villain backstory."""
+    try:
+        villain_traits = [
+            "Evil overlord with a soft spot for cats",
+            "Misunderstood villain with trauma",
+            "Corporate CEO villain plotting world domination",
+            "Chaos gremlin just vibing",
+            "Disappointed parent villain",
+            "Lab experiment gone wrong",
+            "Time traveling villain from the future",
+            "Video game boss with a plot twist",
+            "Villain seeking work-life balance",
+            "Former hero turned villain",
+            "Villain with questionable hygiene",
+            "Villain from a parallel dimension"
+        ]
+        response = random.choice(villain_traits)
+        await update.message.reply_text(f"🦹‍♂️ **VILLAIN ORIGIN:** {response}")
+        logger.info(f"🦹 {update.effective_user.id} became a villain")
+    except Exception as e:
+        logger.error(f"Villain error: {e}")
+        await update.message.reply_text("❌ Villain creation failed")
+
+@user_tracking
+async def goblin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Goblin mode - unleash your inner goblin."""
+    try:
+        goblin_modes = [
+            "🧟 GOBLIN MODE ACTIVATED! *screeching intensifies*",
+            "🦇 Going feral! Expecting chaos! 🔥",
+            "💸 PROFIT MODE! Hoarding everything!",
+            "🗑️ TRASH GREMLIN ENERGY! Let's go!",
+            "👹 UNHINGED AND READY! BRING IT ON!",
+            "🤺 FERAL GOBLIN SPOTTED! *incoherent screaming*",
+            "💍 MY PRECIOUS! MINE MINE MINE!",
+            "🌙 UNDER DA BRIDGE MODE ACTIVATED!",
+            "🔗 FERAL CHAIN: +999 DEF but -IQ",
+            "🧠 BRAIN: LEFT THE CHAT *proceeds to cause chaos*"
+        ]
+        response = random.choice(goblin_modes)
+        await update.message.reply_text(response)
+        logger.info(f"🧟 {update.effective_user.id} entered goblin mode")
+    except Exception as e:
+        logger.error(f"Goblin error: {e}")
+        await update.message.reply_text("❌ Goblin mode failed")
+
+@user_tracking
+async def brainrot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """TikTok brainrot generator - peak TikTok energy."""
+    try:
+        brainrot_phrases = [
+            "SIGMA GRINDSET! 🚀📈 No time for sleep!",
+            "OHIO MOMENT 💀 It's giving weird vibes",
+            "SKIBIDI 🚽 TOILET! *bass boosted* ☠️",
+            "FR FR NO CAP! 💯 That's facts though",
+            "BUSSIN BUSSIN! THAT'S CRAZY! 😤🔥",
+            "ON GOD BRO? THAT'S INSANE! 💔",
+            "GYATT! RIZZ! SIGMA MALE GRINDSET! 😻",
+            "NPC BEHAVIOR DETECTED! *BEEP BOOP*",
+            "SLAY QUEEN! SERVE! PERIOD! ✨💅",
+            "HELP I FELL OFF! I TOOK AN L! 😭🍂"
+        ]
+        response = random.choice(brainrot_phrases)
+        await update.message.reply_text(response)
+        logger.info(f"🧠 {update.effective_user.id} induced brainrot")
+    except Exception as e:
+        logger.error(f"Brainrot error: {e}")
+        await update.message.reply_text("❌ Brainrot generation failed")
+
+@user_tracking
+async def matchmaking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Random ship/matchmaking - random relationship combo."""
+    try:
+        matchmaking_results = [
+            "💑 SOULMATES! Unstoppable duo!",
+            "💔 Toxic pairing! Drama incoming!",
+            "🔥 STEAMING HOT CHEMISTRY! 🌶️",
+            "❄️ COLD as ice! No spark!",
+            "⚡ PERFECT MATCH! Plot twist: They hate each other",
+            "🎭 Enemies to lovers speedrun!",
+            "🤝 Just friends... or are they? 👀",
+            "💀 Ship name: DISASTER",
+            "👑 POWER COUPLE ALERT! 💪",
+            "🎪 Circus energy! Pure chaos!"
+        ]
+        response = random.choice(matchmaking_results)
+        await update.message.reply_text(response)
+        logger.info(f"💑 {update.effective_user.id} got matchmade")
+    except Exception as e:
+        logger.error(f"Matchmaking error: {e}")
+        await update.message.reply_text("❌ Matchmaking failed")
+
+@user_tracking
+async def rizz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Random pickup line - rizz generator."""
+    try:
+        pickup_lines = [
+            "Are you from a Command Block? Because you got me MINING for you 💎",
+            "Did it hurt? When you fell from heaven... into my DMs?",
+            "You must be an enchanting table because I can't read you but you're still magic ✨",
+            "I'm not a photographer but I can picture us together 📸",
+            "Did you just walk out of a fairy tale? Because you're a 10/10 but your vibe is MYTHICAL",
+            "You know what's common between you and a parking space? Both rare and I want to get in 🅿️",
+            "Are you a glitch? Because everything else disappears when I'm around you",
+            "If you were a vegetable, you'd be a cute-cumber! 🥒",
+            "Do you believe in love at first sight or should I walk by again? 👀",
+            "You're so stunning I forgot what I was gonna say... I forgot the INTERNET too! 📵"
+        ]
+        response = random.choice(pickup_lines)
+        await update.message.reply_text(f"😏 **RIZZ ACQUIRED:** {response}")
+        logger.info(f"😏 {update.effective_user.id} got some rizz")
+    except Exception as e:
+        logger.error(f"Rizz error: {e}")
+        await update.message.reply_text("❌ Rizz generation failed")
+
+@user_tracking
+async def sus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sus detector - how suspicious are you?"""
+    try:
+        sus_levels = [
+            "🔴 MEGA SUS! Red alert! Amogus! 📍",
+            "🟡 Kinda sus... *ejects suspiciously*",
+            "🟢 NOT SUS! Clean record!",
+            "💀 DEAD sus! No coming back!",
+            "👁️👄👁️ EXTREMELY SUSPICIOUS! I'm watching!",
+            "🎭 Imposter vibes detected!",
+            "✨ SUS LEVEL: OVER 9000! 🚀",
+            "❓ Questionable... VERY questionable...",
+            "🤔 Sus-picious indeed... *writes notes*",
+            "☠️ So sus we're investigating your birth certificate!"
+        ]
+        response = random.choice(sus_levels)
+        await update.message.reply_text(response)
+        logger.info(f"🔍 {update.effective_user.id} sus check complete")
+    except Exception as e:
+        logger.error(f"Sus error: {e}")
+        await update.message.reply_text("❌ Sus detector malfunction")
+
+@user_tracking
+async def aura(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Aura points - how good is your vibe?"""
+    try:
+        aura_score = random.randint(1, 100)
+        if aura_score >= 80:
+            status = "🟢 GIGACHAD ENERGY! Untouchable!"
+        elif aura_score >= 60:
+            status = "🟡 Pretty good vibes! Respectable!"
+        elif aura_score >= 40:
+            status = "🟠 Mid vibes... could be better"
+        elif aura_score >= 20:
+            status = "🔴 Yikes. Negative energy detected"
+        else:
+            status = "💀 CURSED! Aura is NEGATIVE!"
+        
+        aura_text = f"""
+✨ **AURA CHECK** ✨
+━━━━━━━━━━━━━━━━
+Score: {aura_score}/100
+Status: {status}
+Multiplier: x{random.choice([1, 2, 3, 0.5])}
+        """
+        await update.message.reply_text(aura_text, parse_mode="Markdown")
+        logger.info(f"✨ {update.effective_user.id} aura: {aura_score}")
+    except Exception as e:
+        logger.error(f"Aura error: {e}")
+        await update.message.reply_text("❌ Aura read failed")
+
+@user_tracking
+async def drip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Drip rating - how's your fit?"""
+    try:
+        drip_rating = random.randint(1, 10)
+        drip_comments = [
+            "💧 DRIP TOO HARD! Legendary fit!",
+            "👕 No drip detected. Tragic.",
+            "🔥 FIRE FIT! Absolutely unhinged style!",
+            "🥶 COLD! Ice in their veins!",
+            "💀 The drip is DEAD, Jim",
+            "👑 ROYALTY DRIP! Dress code: EXCELLENCE",
+            "🌊 Drowning in sauce!",
+            "🍃 That fit is GRASS (bad)",
+            "✨ IMMACULATE DRIP CHECK!",
+            "🪦 Drip RIP - fashion is no more"
+        ]
+        
+        drip_text = f"""
+👗 **DRIP RATING: {drip_rating}/10** 👕
+━━━━━━━━━━━━━━━━━━
+{drip_comments[drip_rating - 1] if drip_rating <= len(drip_comments) else random.choice(drip_comments)}
+        """
+        await update.message.reply_text(drip_text, parse_mode="Markdown")
+        logger.info(f"👗 {update.effective_user.id} drip rating: {drip_rating}")
+    except Exception as e:
+        logger.error(f"Drip error: {e}")
+        await update.message.reply_text("❌ Drip check failed")
+
+# =========================
 # ERROR HANDLER
 # =========================
 
@@ -2533,6 +2837,19 @@ def setup_bot():
     app.add_handler(CommandHandler("goodmorning", goodmorning_cmd))
     app.add_handler(CommandHandler("goodnight", goodnight_cmd))
     
+    # New Trendy Commands
+    app.add_handler(CommandHandler("cooked", cooked))
+    app.add_handler(CommandHandler("npc", npc))
+    app.add_handler(CommandHandler("fbi", fbi))
+    app.add_handler(CommandHandler("crime", crime))
+    app.add_handler(CommandHandler("villain", villain))
+    app.add_handler(CommandHandler("goblin", goblin))
+    app.add_handler(CommandHandler("brainrot", brainrot))
+    app.add_handler(CommandHandler("matchmaking", matchmaking))
+    app.add_handler(CommandHandler("rizz", rizz))
+    app.add_handler(CommandHandler("sus", sus))
+    app.add_handler(CommandHandler("aura", aura))
+    app.add_handler(CommandHandler("drip", drip))
 
     
     # Messages (must be last)
