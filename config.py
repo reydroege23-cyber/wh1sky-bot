@@ -88,7 +88,7 @@ SPAM_TIME = 10  # seconds
 # =========================
 
 AI_MODEL = "meta-llama/llama-3.1-8b-instruct"  # OpenRouter model
-AI_TIMEOUT = 30  # seconds (increased for reliability)
+AI_TIMEOUT = 15  # seconds (optimized for speed)
 MAX_RESPONSE_LENGTH = 4096  # Telegram limit
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
@@ -97,9 +97,16 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # =========================
 
 ENABLE_RATE_LIMITING = True  # Enable/disable cooldown system
-AI_COOLDOWN = 5  # seconds between /ai commands
-SPEAK_COOLDOWN = 3  # seconds between speak mode replies
-COMMAND_COOLDOWN = 2  # seconds between other commands
+AI_COOLDOWN = 3  # seconds between /ai commands (reduced for speed)
+SPEAK_COOLDOWN = 2  # seconds between speak mode replies (reduced for speed)
+COMMAND_COOLDOWN = 1  # seconds between other commands (reduced for speed)
+
+# =========================
+# PERFORMANCE SETTINGS
+# =========================
+
+DATA_SAVE_BATCH_INTERVAL = 5  # seconds - batch writes instead of per-message
+ENABLE_ASYNC_SAVES = True  # Use async I/O for data persistence
 
 # =========================
 # DATA STORAGE

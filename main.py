@@ -24,6 +24,7 @@ import random
 import base64
 import traceback
 import os
+from collections import defaultdict
 
 # =========================
 # LOGGING SETUP (ENHANCED)
@@ -94,6 +95,34 @@ def save_data(data):
 bot_data = load_data()
 
 # =========================
+# BATCHED SAVE SYSTEM (PERFORMANCE)
+# =========================
+
+_save_queue = {}
+_last_save_time = datetime.now()
+_save_lock = asyncio.Lock()
+
+async def queue_data_save():
+    """Queue data save instead of writing immediately."""
+    global _save_queue
+    _save_queue = {"pending": True}
+
+async def flush_pending_saves():
+    """Periodically flush queued saves to disk."""
+    global _last_save_time
+    
+    async with _save_lock:
+        if _save_queue.get("pending") and ENABLE_ASYNC_SAVES:
+            current_time = datetime.now()
+            if (current_time - _last_save_time).total_seconds() >= DATA_SAVE_BATCH_INTERVAL:
+                try:
+                    await asyncio.to_thread(save_data, bot_data)
+                    _last_save_time = current_time
+                    _save_queue.clear()
+                except Exception as e:
+                    logger.error(f"❌ Failed to flush saves: {e}")
+
+# =========================
 # DECORATORS (ENHANCED)
 # =========================
 
@@ -124,20 +153,29 @@ def reply_required(func):
 
 
 
+# In-memory cache for quick stats (flushed periodically)
+_stats_cache = defaultdict(lambda: {"messages": 0, "ai_queries": 0})
+
 def user_tracking(func):
-    """Track user statistics."""
+    """Track user statistics (batched for performance)."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = str(update.effective_user.id)
+        
+        # Quick in-memory update (no disk I/O)
         if user_id not in bot_data["stats"]:
             bot_data["stats"][user_id] = {
                 "messages": 0, "ai_queries": 0, "warnings": 0,
                 "first_seen": datetime.now().isoformat(),
                 "last_seen": datetime.now().isoformat()
             }
+        
         bot_data["stats"][user_id]["last_seen"] = datetime.now().isoformat()
         bot_data["stats"][user_id]["messages"] += 1
-        save_data(bot_data)
+        
+        # Queue save instead of immediate write
+        await queue_data_save()
+        
         return await func(update, context)
     return wrapper
 
@@ -145,42 +183,24 @@ def user_tracking(func):
 # RATE LIMITING (COOLDOWNS)
 # =========================
 
-# Track cooldowns per user: {"command_user_id": timestamp}
-command_cooldowns = {}
-ai_cooldowns = {}
-speak_cooldowns = {}
+# Optimized cooldown using single dict with fast lookup
+_cooldowns = {}  # {"type_userid": timestamp}
 
 def check_cooldown(user_id: int, cooldown_type: str, cooldown_seconds: int) -> tuple[bool, str]:
-    """Check if user is in cooldown. Returns (is_allowed, message)."""
-    if not ENABLE_RATE_LIMITING:
+    """Check if user is in cooldown (optimized). Returns (is_allowed, message)."""
+    if not ENABLE_RATE_LIMITING or user_id in ADMIN_IDS:
         return True, ""
     
-    # Admins always bypass cooldowns
-    if user_id in ADMIN_IDS:
-        return True, ""
+    key = f"{cooldown_type}_{user_id}"
+    current = datetime.now()
     
-    current_time = datetime.now()
-    cooldown_key = f"{cooldown_type}_{user_id}"
+    # Check and update in one operation
+    if key in _cooldowns:
+        elapsed = (current - _cooldowns[key]).total_seconds()
+        if elapsed < cooldown_seconds:
+            return False, f"⏱️ Cooldown active. Wait {int(cooldown_seconds - elapsed)}s"
     
-    # Get appropriate cooldown dict
-    if cooldown_type == "ai":
-        cooldown_dict = ai_cooldowns
-    elif cooldown_type == "speak":
-        cooldown_dict = speak_cooldowns
-    else:
-        cooldown_dict = command_cooldowns
-    
-    # Check if user has a cooldown
-    if cooldown_key in cooldown_dict:
-        last_time = cooldown_dict[cooldown_key]
-        time_diff = (current_time - last_time).total_seconds()
-        
-        if time_diff < cooldown_seconds:
-            remaining = cooldown_seconds - int(time_diff)
-            return False, f"⏱️ Cooldown active. Wait {remaining}s"
-    
-    # Update cooldown
-    cooldown_dict[cooldown_key] = current_time
+    _cooldowns[key] = current
     return True, ""
 
 def rate_limit(cooldown_type: str = "command", cooldown_seconds: int = None):
@@ -215,12 +235,12 @@ def rate_limit(cooldown_type: str = "command", cooldown_seconds: int = None):
 # =========================
 
 async def ask_ai(message: str) -> str:
-    """Get response from AI using OpenRouter API."""
+    """Get response from AI using OpenRouter API (optimized)."""
     if not AI_AVAILABLE or ai_client is None:
         return "⚠️ AI service is offline. Contact admin."
     
     try:
-        # Use OpenRouter API via asyncio thread
+        # Use OpenRouter API via asyncio thread with optimized timeout
         response = await asyncio.wait_for(
             asyncio.to_thread(
                 lambda: ai_client.chat.completions.create(
@@ -230,7 +250,7 @@ async def ask_ai(message: str) -> str:
                         {"role": "user", "content": message}
                     ],
                     temperature=0.7,
-                    max_tokens=1000
+                    max_tokens=500  # Reduced for faster responses
                 )
             ),
             timeout=AI_TIMEOUT
@@ -554,7 +574,7 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id in bot_data["stats"]:
             bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
         logger.info(f"✅ AI query successful from {user_id}")
-        save_data(bot_data)
+        await queue_data_save()
         
     except Exception as e:
         logger.error(f"❌ AI command error: {type(e).__name__}: {e}")
@@ -604,7 +624,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if user_id in bot_data["stats"]:
                     bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
                 logger.info(f"✅ Speak mode - AI response to {user_id}")
-                save_data(bot_data)
+                await queue_data_save()  # Queue instead of immediate save
                 return
             except Exception as e:
                 logger.error(f"❌ Speak mode error: {type(e).__name__}: {e}")
@@ -629,7 +649,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     bot_data["warnings"][user_id] = bot_data["warnings"].get(user_id, 0) + 1
                     logger.warning(f"🔞 NSFW from {user_id}")
-                    save_data(bot_data)
+                    await queue_data_save()  # Queue instead of immediate save
                     return
 
         # AI COMMAND
@@ -644,9 +664,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             try:
-                typing_msg = await update.message.reply_text("🤖 Thinking...")
+                # Skip typing indicator for faster response
                 response = await ask_ai(query)
-                await typing_msg.edit_text(response)
+                await update.message.reply_text(response)
                 
                 bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
                 logger.info(f"🤖 AI query from {user_id}")
@@ -654,7 +674,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"AI handler error: {e}")
                 await update.message.reply_text("❌ Error processing query")
             
-        save_data(bot_data)
+        await queue_data_save()  # Queue instead of immediate save
             
     except Exception as e:
         logger.error(f"❌ Message handler error: {e}")
@@ -749,8 +769,8 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"📍 New count set to: {new_count}")
         
         # STEP 3: Save immediately - CRITICAL STEP
-        save_data(bot_data)
-        logger.info(f"💾 Data saved to file")
+        await queue_data_save()
+        logger.info(f"💾 Data queued for saving")
         
         # STEP 4: Verify the save was successful by reloading
         verification_data = load_data()
@@ -784,7 +804,7 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 # STEP 7: Reset warns to 0 after successful ban (mark as completed)
                 bot_data["warnings"][user_id_str] = 0
-                save_data(bot_data)
+                await queue_data_save()
                 logger.critical(f"✅ Warns reset to 0 for {username} after ban")
                 
             except Exception as ban_error:
@@ -835,7 +855,7 @@ async def clear_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id_str = str(user_id)
     bot_data["warnings"][user_id_str] = 0
     await update.message.reply_text(f"✅ {username}'s warnings cleared")
-    save_data(bot_data)
+    await queue_data_save()
     logger.info(f"✅ Warnings cleared for {user_id}")
 
 @admin_only
@@ -1716,7 +1736,7 @@ async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "metadata" not in bot_data:
             bot_data["metadata"] = {}
         bot_data["metadata"]["speak_mode"] = True
-        save_data(bot_data)
+        await queue_data_save()
         await update.message.reply_text("🤖 SPEAK MODE ENABLED\n\nI will now respond to all messages with AI")
         logger.info(f"🤖 {update.effective_user.id} enabled speak mode")
     except Exception as e:
@@ -1732,7 +1752,7 @@ async def stop_speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "metadata" not in bot_data:
             bot_data["metadata"] = {}
         bot_data["metadata"]["speak_mode"] = False
-        save_data(bot_data)
+        await queue_data_save()
         await update.message.reply_text("🔇 SPEAK MODE DISABLED\n\nBack to command mode")
         logger.info(f"🤖 {update.effective_user.id} disabled speak mode")
     except Exception as e:
@@ -1965,7 +1985,7 @@ async def truth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         truth_q = random.choice(available_truths)
         # Record usage time
         bot_data["used_truths"][truth_q] = current_time.isoformat()
-        save_data(bot_data)
+        await queue_data_save()
         
         await update.message.reply_text(f"🎯 **TRUTH:**\n\n{truth_q}", parse_mode="Markdown")
         logger.info(f"🎯 {update.effective_user.id} got a truth question")
@@ -2058,7 +2078,7 @@ async def dare(update: Update, context: ContextTypes.DEFAULT_TYPE):
         dare_msg = random.choice(available_dares)
         # Record usage time
         bot_data["used_dares"][dare_msg] = current_time.isoformat()
-        save_data(bot_data)
+        await queue_data_save()
         
         await update.message.reply_text(f"😈 **DARE:**\n\n{dare_msg}", parse_mode="Markdown")
         logger.info(f"😈 {update.effective_user.id} got a dare")
@@ -2418,9 +2438,21 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 # BOT SETUP
 # =========================
 
+async def periodic_save_task(app):
+    """Background task to periodically flush data saves."""
+    while True:
+        try:
+            await asyncio.sleep(DATA_SAVE_BATCH_INTERVAL)
+            await flush_pending_saves()
+        except Exception as e:
+            logger.error(f"Periodic save error: {e}")
+
 def setup_bot():
     """Initialize and setup bot."""
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    
+    # Start periodic save task
+    app.post_init = lambda app: app.create_task(periodic_save_task(app))
     
     # Error handler
     app.add_error_handler(error_handler)
@@ -2508,6 +2540,14 @@ def setup_bot():
     
     # Messages (must be last)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Create job queue to periodically save
+    job_queue = app.job_queue
+    job_queue.run_repeating(
+        lambda context: asyncio.create_task(flush_pending_saves()),
+        interval=DATA_SAVE_BATCH_INTERVAL,
+        first=DATA_SAVE_BATCH_INTERVAL
+    )
     
     return app
 
