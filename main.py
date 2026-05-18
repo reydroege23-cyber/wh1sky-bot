@@ -2451,9 +2451,6 @@ def setup_bot():
     """Initialize and setup bot."""
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
-    # Start periodic save task
-    app.post_init = lambda app: app.create_task(periodic_save_task(app))
-    
     # Error handler
     app.add_error_handler(error_handler)
     
