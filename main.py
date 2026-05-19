@@ -1616,7 +1616,7 @@ async def members_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to get member count")
 
 @user_tracking
-async def quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def quote_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get random inspirational quote."""
     quotes = [
         "The only way to do great work is to love what you do. - Steve Jobs",
@@ -2836,6 +2836,7 @@ def setup_bot():
     app.add_handler(CommandHandler("time", time_cmd))
     app.add_handler(CommandHandler("Rape", Rape))
     app.add_handler(CommandHandler("imagine", imagine))
+    app.add_handler(CommandHandler("quote", quote_cmd))
     app.add_handler(CommandHandler("8ball", eightball))
     app.add_handler(CommandHandler("reverse", reverse))
     app.add_handler(CommandHandler("fact", fact))
