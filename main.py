@@ -2811,7 +2811,6 @@ def setup_bot():
     app.add_handler(CommandHandler("profile", user_profile))
     app.add_handler(CommandHandler("invite", invite_link))
     app.add_handler(CommandHandler("members", members_count))
-    app.add_handler(CommandHandler("quote", quote))
     app.add_handler(CommandHandler("dice", dice_roll))
     app.add_handler(CommandHandler("uptime", uptime))
     app.add_handler(CommandHandler("hajhanm", hajhanm))
