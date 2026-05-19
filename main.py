@@ -15,6 +15,7 @@ from telegram.ext import (
 from openai import OpenAI
 from datetime import timedelta, datetime
 from urllib.parse import quote
+from io import BytesIO
 import logging
 import json
 from pathlib import Path
@@ -25,6 +26,7 @@ import random
 import base64
 import traceback
 import os
+import requests
 from collections import defaultdict
 
 # =========================
@@ -1314,8 +1316,12 @@ async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             image_url = f"https://gen.pollinations.ai/image/{encoded}"
 
-        # Send image by URL (Telegram will fetch it)
-        await update.message.reply_photo(photo=image_url, caption=f"🎨 Prompt: {prompt}")
+        # Download the generated image first and send bytes to Telegram
+        response = requests.get(image_url, timeout=60)
+        response.raise_for_status()
+        image_bytes = BytesIO(response.content)
+        image_bytes.name = "image.png"
+        await update.message.reply_photo(photo=image_bytes, caption=f"🎨 Prompt: {prompt}")
 
         # Clean up the generating message
         try:
