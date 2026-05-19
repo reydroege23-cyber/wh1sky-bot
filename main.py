@@ -14,8 +14,6 @@ from telegram.ext import (
 
 from openai import OpenAI
 from datetime import timedelta, datetime
-from urllib.parse import quote
-from io import BytesIO
 import logging
 import json
 from pathlib import Path
@@ -26,7 +24,6 @@ import random
 import base64
 import traceback
 import os
-import requests
 from collections import defaultdict
 
 # =========================
@@ -1292,47 +1289,6 @@ async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
         import traceback
         logger.error(traceback.format_exc())
 
-
-@user_tracking
-async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generate an AI image via Pollinations and send it back."""
-    try:
-        prompt = " ".join(context.args).strip()
-        if not prompt:
-            await update.message.reply_text("Usage: /imagine <prompt>")
-            return
-
-        # Optional: let the user know we're generating
-        msg = await update.message.reply_text("🎨 Generating image...")
-
-        # Encode prompt safely and build image URL
-        encoded = quote(prompt)
-        # If API key is configured, include model and key parameters
-        if POLLINATIONS_API_KEY:
-            image_url = (
-                f"https://gen.pollinations.ai/image/{encoded}"
-                f"?model={POLLINATIONS_MODEL}&key={POLLINATIONS_API_KEY}"
-            )
-        else:
-            image_url = f"https://gen.pollinations.ai/image/{encoded}"
-
-        # Download the generated image first and send bytes to Telegram
-        response = requests.get(image_url, timeout=60)
-        response.raise_for_status()
-        image_bytes = BytesIO(response.content)
-        image_bytes.name = "image.png"
-        await update.message.reply_photo(photo=image_bytes, caption=f"🎨 Prompt: {prompt}")
-
-        # Clean up the generating message
-        try:
-            await msg.delete()
-        except:
-            pass
-
-        logger.info(f"🖼️ {update.effective_user.id} generated image for prompt: {prompt}")
-    except Exception as e:
-        logger.error(f"Imagine error: {e}")
-        await update.message.reply_text("❌ Failed to generate image")
 
 @user_tracking
 async def eightball(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2841,7 +2797,6 @@ def setup_bot():
     app.add_handler(CommandHandler("echo", echo))
     app.add_handler(CommandHandler("time", time_cmd))
     app.add_handler(CommandHandler("Rape", Rape))
-    app.add_handler(CommandHandler("imagine", imagine))
     app.add_handler(CommandHandler("quote", quote_cmd))
     app.add_handler(CommandHandler("8ball", eightball))
     app.add_handler(CommandHandler("reverse", reverse))

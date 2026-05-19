@@ -23,10 +23,8 @@ if not TELEGRAM_TOKEN:
 if not OPENROUTER_API_KEY:
     print("⚠️ Warning: OPENROUTER_API_KEY not found in environment")
 
-# Optional: separate bot token and Pollinations API key
+# Optional: separate bot token
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY")
-POLLINATIONS_MODEL = os.getenv("POLLINATIONS_MODEL") or "flux"
 
 # =========================
 # BOT SETTINGS
