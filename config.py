@@ -17,6 +17,9 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or "8771300086:AAHpos-PeRziKVr3za4XbMq0_MibJUVOznA"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or "sk-or-v1-your-key-here"
 
+# Optional separate bot token (can be set via BOT_TOKEN env var)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
 # Validate credentials exist
 if not TELEGRAM_TOKEN:
     print("⚠️ Warning: TELEGRAM_TOKEN not found in environment")

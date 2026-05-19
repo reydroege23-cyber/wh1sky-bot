@@ -14,6 +14,7 @@ from telegram.ext import (
 
 from openai import OpenAI
 from datetime import timedelta, datetime
+from urllib.parse import quote
 import logging
 import json
 from pathlib import Path
@@ -1288,6 +1289,37 @@ async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Rape error: {type(e).__name__}: {e}")
         import traceback
         logger.error(traceback.format_exc())
+
+
+@user_tracking
+async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Generate an AI image via Pollinations and send it back."""
+    try:
+        prompt = " ".join(context.args).strip()
+        if not prompt:
+            await update.message.reply_text("Usage: /imagine <prompt>")
+            return
+
+        # Optional: let the user know we're generating
+        msg = await update.message.reply_text("🎨 Generating image...")
+
+        # Encode prompt safely and build image URL
+        encoded = quote(prompt)
+        image_url = f"https://gen.pollinations.ai/image/{encoded}"
+
+        # Send image by URL (Telegram will fetch it)
+        await update.message.reply_photo(photo=image_url, caption=f"🎨 Prompt: {prompt}")
+
+        # Clean up the generating message
+        try:
+            await msg.delete()
+        except:
+            pass
+
+        logger.info(f"🖼️ {update.effective_user.id} generated image for prompt: {prompt}")
+    except Exception as e:
+        logger.error(f"Imagine error: {e}")
+        await update.message.reply_text("❌ Failed to generate image")
 
 @user_tracking
 async def eightball(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2796,6 +2828,7 @@ def setup_bot():
     app.add_handler(CommandHandler("echo", echo))
     app.add_handler(CommandHandler("time", time_cmd))
     app.add_handler(CommandHandler("Rape", Rape))
+    app.add_handler(CommandHandler("imagine", imagine))
     app.add_handler(CommandHandler("8ball", eightball))
     app.add_handler(CommandHandler("reverse", reverse))
     app.add_handler(CommandHandler("fact", fact))
