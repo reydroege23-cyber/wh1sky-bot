@@ -1240,6 +1240,12 @@ async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tell a random Rape with target user's name - only works on user messages, not bots."""
     import random
     try:
+        # Block specific user from using this command
+        caller_id = update.effective_user.id if update.effective_user else None
+        if caller_id == 8537521522:
+            logger.info(f"ℹ️ {caller_id} attempted /rape but is blocked")
+            await update.message.reply_text("❌ You are not allowed to use this command.")
+            return
         # Check if replying to someone
         if update.message.reply_to_message:
             # Only work if replying to a user, NOT a bot
