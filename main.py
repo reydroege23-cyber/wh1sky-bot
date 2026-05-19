@@ -1250,6 +1250,10 @@ async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.message.reply_to_message:
             # Only work if replying to a user, NOT a bot
             replied_user = update.message.reply_to_message.from_user
+            # If the reply targets the protected user, silently ignore
+            if replied_user and getattr(replied_user, "id", None) == 8537521522:
+                logger.info(f"ℹ️ {update.effective_user.id} tried /rape targeting protected user 8537521522 - ignoring")
+                return
             if not replied_user:
                 logger.info(f"ℹ️ {update.effective_user.id} tried /rape on system message - ignoring")
                 return
