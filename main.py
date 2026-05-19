@@ -1305,7 +1305,14 @@ async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Encode prompt safely and build image URL
         encoded = quote(prompt)
-        image_url = f"https://gen.pollinations.ai/image/{encoded}"
+        # If API key is configured, include model and key parameters
+        if POLLINATIONS_API_KEY:
+            image_url = (
+                f"https://gen.pollinations.ai/image/{encoded}"
+                f"?model={POLLINATIONS_MODEL}&key={POLLINATIONS_API_KEY}"
+            )
+        else:
+            image_url = f"https://gen.pollinations.ai/image/{encoded}"
 
         # Send image by URL (Telegram will fetch it)
         await update.message.reply_photo(photo=image_url, caption=f"🎨 Prompt: {prompt}")
