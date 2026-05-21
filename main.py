@@ -1240,34 +1240,23 @@ async def Rape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tell a random Rape with target user's name - only works on user messages, not bots."""
     import random
     try:
-        # Block specific user from using this command
-        caller_id = update.effective_user.id if update.effective_user else None
-        if caller_id == 8537521522:
-            logger.info(f"ℹ️ {caller_id} attempted /rape but is blocked")
-            await update.message.reply_text("❌ You are not allowed to use this command.")
-            return
         # Check if replying to someone
         if update.message.reply_to_message:
-            # Only work if replying to a user, NOT a bot
             replied_user = update.message.reply_to_message.from_user
-            # If the reply targets the protected user, silently ignore
-            if replied_user and getattr(replied_user, "id", None) == 8537521522:
-                logger.info(f"ℹ️ {update.effective_user.id} tried /rape targeting protected user 8537521522 - ignoring")
-                return
             if not replied_user:
                 logger.info(f"ℹ️ {update.effective_user.id} tried /rape on system message - ignoring")
                 return
-            
-            # Check if the replied message is from a bot
-            if replied_user.is_bot:
-                logger.info(f"ℹ️ {update.effective_user.id} tried /rape on bot message - ignoring")
+
+            caller_id = update.effective_user.id if update.effective_user else None
+            if caller_id not in ADMIN_IDS and (replied_user.is_bot or replied_user.id in ADMIN_IDS):
+                logger.info(f"ℹ️ {caller_id} attempted /rape on protected target {replied_user.id}")
+                await update.message.reply_text("❌ You are not allowed to use this command on that user.")
                 return
-            
-            # Process reply to user
-            target_name = replied_user.first_name or "User"
+
+            target_name = replied_user.first_name or replied_user.username or "User"
             response = f"Rape {target_name}"
             await update.message.reply_text(response)
-            logger.info(f"😂 {update.effective_user.id} raped {target_name}")
+            logger.info(f"😂 {caller_id} raped {target_name}")
             return
         
         # Only do random Rape if NOT replying to anything
