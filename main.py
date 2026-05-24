@@ -3,6 +3,8 @@
 Advanced Telegram Bot with AI Integration & Premium Features
 """
 
+# pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false, reportOptionalCall=false
+
 from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -13,12 +15,15 @@ from telegram.ext import (
     filters
 )
 
+import asyncio
 from openai import OpenAI
 from datetime import timedelta, datetime
 import logging
 import json
 from pathlib import Path
 from collections import defaultdict
+from typing import Optional, Any, cast
+import random
 
 from functools import wraps
 from config import *
@@ -41,6 +46,128 @@ except Exception as e:
     AI_AVAILABLE = False
     ai_client = None
     logger.warning(f"⚠️ AI client not available: {e}")
+
+# =========================
+# DATA STORAGE HELPERS
+# =========================
+
+def load_data():
+    """Load persistent bot data from DATA_FILE."""
+    try:
+        if Path(DATA_FILE).exists():
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                logger.info(f"📦 Loaded bot data for {len(data.get('stats', {}))} users")
+                return data
+    except Exception as e:
+        logger.error(f"❌ Error loading data: {e}")
+    # Default structure
+    return {"warnings": {}, "stats": {}, "mutes": {}, "metadata": {}}
+
+
+def save_data(data: dict):
+    """Save bot data to disk (synchronous)."""
+    try:
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        logger.debug(f"💾 Saved bot data ({len(data.get('stats', {}))} users)")
+    except Exception as e:
+        logger.error(f"❌ Error saving data: {e}")
+
+
+# Async batching/queue for saves
+_save_lock = asyncio.Lock()
+_save_queue: dict = {}
+_last_save_time = datetime.now()
+_save_task = None
+
+
+async def _delayed_flush():
+    """Background delayed flush task."""
+    try:
+        await asyncio.sleep(DATA_SAVE_BATCH_INTERVAL)
+        async with _save_lock:
+            if _save_queue.get("pending"):
+                try:
+                    await asyncio.to_thread(save_data, bot_data)
+                except Exception as e:
+                    logger.error(f"❌ Failed background save: {e}")
+                _save_queue.clear()
+                global _last_save_time
+                _last_save_time = datetime.now()
+    except Exception as e:
+        logger.error(f"❌ Error in delayed flush: {e}")
+
+
+async def queue_data_save():
+    """Mark data as pending and schedule a background flush.
+
+    Awaiting this function simply queues the save; the actual write
+    happens after DATA_SAVE_BATCH_INTERVAL unless async saves disabled.
+    """
+    async with _save_lock:
+        _save_queue["pending"] = True
+
+    if not ENABLE_ASYNC_SAVES:
+        # immediate synchronous save
+        try:
+            save_data(bot_data)
+        except Exception as e:
+            logger.error(f"❌ Immediate save failed: {e}")
+        return
+
+    global _save_task
+    if _save_task is None or _save_task.done():
+        _save_task = asyncio.create_task(_delayed_flush())
+
+
+# Load initial bot data
+bot_data = load_data()
+
+
+# =========================
+# SAFE ACCESS HELPERS
+# =========================
+
+def _safe_effective_user(update) -> object:
+    """Return effective_user or None."""
+    try:
+        return getattr(update, 'effective_user', None)
+    except Exception:
+        return None
+
+
+def _safe_user_id(update) -> int | None:
+    u = _safe_effective_user(update)
+    return getattr(u, 'id', None) if u is not None else None
+
+
+def _safe_first_name(update) -> str:
+    u = _safe_effective_user(update)
+    return getattr(u, 'first_name', 'User') if u is not None else 'User'
+
+
+def _safe_message_obj(update):
+    try:
+        return getattr(update, 'message', None)
+    except Exception:
+        return None
+
+
+def _safe_chat_id(update) -> int | None:
+    try:
+        chat = getattr(update, 'effective_chat', None)
+        return getattr(chat, 'id', None) if chat is not None else None
+    except Exception:
+        return None
+
+
+def _safe_query_obj(obj):
+    # Accept either a CallbackQuery or None
+    try:
+        return obj
+    except Exception:
+        return None
 async def flush_pending_saves():
     """Periodically flush queued saves to disk."""
     global _last_save_time
@@ -64,11 +191,20 @@ def admin_only(func):
     """Check if user is admin."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = update.effective_user.id
-        
+        user_id = _safe_user_id(update)
+
+        if user_id is None:
+            logger.warning("🚫 admin_only: no user in update")
+            msg = _safe_message_obj(update)
+            if msg:
+                await msg.reply_text("❌ Could not determine user.")
+            return
+
         if user_id not in ADMIN_IDS:
             logger.warning(f"🚫 Unauthorized access by {user_id}")
-            await update.message.reply_text("❌ Only admins can use this command.")
+            msg = _safe_message_obj(update)
+            if msg:
+                await msg.reply_text("❌ Only admins can use this command.")
             return
         
         return await func(update, context)
@@ -78,8 +214,10 @@ def reply_required(func):
     """Check if command is a reply."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not update.message.reply_to_message:
-            await update.message.reply_text("❌ Please reply to a message.")
+        msg = _safe_message_obj(update)
+        if not msg or not getattr(msg, 'reply_to_message', None):
+            if msg:
+                await msg.reply_text("❌ Please reply to a message.")
             return
         return await func(update, context)
     return wrapper
@@ -94,8 +232,13 @@ def user_tracking(func):
     """Track user statistics (batched for performance)."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = str(update.effective_user.id)
-        
+        uid = _safe_user_id(update)
+        if uid is None:
+            logger.debug("user_tracking: no user in update")
+            return await func(update, context)
+
+        user_id = str(uid)
+
         # Quick in-memory update (no disk I/O)
         if user_id not in bot_data["stats"]:
             bot_data["stats"][user_id] = {
@@ -103,13 +246,13 @@ def user_tracking(func):
                 "first_seen": datetime.now().isoformat(),
                 "last_seen": datetime.now().isoformat()
             }
-        
+
         bot_data["stats"][user_id]["last_seen"] = datetime.now().isoformat()
         bot_data["stats"][user_id]["messages"] += 1
-        
+
         # Queue save instead of immediate write
         await queue_data_save()
-        
+
         return await func(update, context)
     return wrapper
 
@@ -137,12 +280,17 @@ def check_cooldown(user_id: int, cooldown_type: str, cooldown_seconds: int) -> t
     _cooldowns[key] = current
     return True, ""
 
-def rate_limit(cooldown_type: str = "command", cooldown_seconds: int = None):
+def rate_limit(cooldown_type: str = "command", cooldown_seconds: Optional[int] = None):
     """Rate limiting decorator for commands."""
     def decorator(func):
         @wraps(func)
         async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-            user_id = update.effective_user.id
+            user_id = _safe_user_id(update)
+            if user_id is None:
+                msg = _safe_message_obj(update)
+                if msg:
+                    await msg.reply_text("❌ Could not determine user for rate limit.")
+                return
             
             # Determine cooldown time
             if cooldown_seconds is not None:
@@ -237,8 +385,18 @@ I'm an AI-powered Telegram bot with advanced moderation features.
 
 Use `/help` for complete command list!
     """
-    await update.message.reply_text(welcome, parse_mode="Markdown")
-    logger.info(f"👤 New user: {user.id} ({user.first_name})")
+    msg = _safe_message_obj(update)
+    try:
+        if msg:
+            await msg.reply_text(welcome, parse_mode="Markdown")
+        else:
+            chat_id = _safe_chat_id(update)
+            if chat_id is not None:
+                await context.bot.send_message(chat_id=chat_id, text=welcome, parse_mode="Markdown")
+    except Exception:
+        logger.exception("Failed to send start message")
+
+    logger.info(f"👤 New user: {_safe_user_id(update)} ({_safe_first_name(update)})")
 
 # =========================
 # HELP COMMAND
@@ -319,7 +477,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 **📞 Need help?** Contact an admin or check logs.
     """
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    msg = _safe_message_obj(update)
+    if msg:
+        await msg.reply_text(help_text, parse_mode="Markdown")
+    else:
+        chat_id = _safe_chat_id(update)
+        if chat_id is not None:
+            await context.bot.send_message(chat_id=chat_id, text=help_text, parse_mode="Markdown")
 
 # =========================
 # STATS COMMAND
@@ -328,9 +492,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @user_tracking
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced stats command."""
-    user_id = str(update.effective_user.id)
-    user_stats = bot_data["stats"].get(user_id, {})
-    warnings = bot_data["warnings"].get(user_id, 0)
+    uid = _safe_user_id(update)
+    user_id = str(uid) if uid is not None else None
+    user_stats = bot_data["stats"].get(user_id, {}) if user_id is not None else {}
+    warnings = bot_data["warnings"].get(user_id, 0) if user_id is not None else 0
     
     stats_text = f"""
 📊 **YOUR STATISTICS**
@@ -340,7 +505,13 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚠️ Warnings: {warnings}/{MAX_WARNINGS}
 📅 Member since: {user_stats.get('first_seen', 'Unknown')[:10]}
     """
-    await update.message.reply_text(stats_text, parse_mode="Markdown")
+    msg = _safe_message_obj(update)
+    if msg:
+        await msg.reply_text(stats_text, parse_mode="Markdown")
+    else:
+        chat_id = _safe_chat_id(update)
+        if chat_id is not None:
+            await context.bot.send_message(chat_id=chat_id, text=stats_text, parse_mode="Markdown")
 
 # =========================
 # PING COMMAND
@@ -455,11 +626,17 @@ RECENT_CHAT_MESSAGES = defaultdict(list)
 
 async def lasthope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Launch the owner-only Last Hope control panel."""
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("❌ Only the owner can deploy the Last Hope system.")
+    uid = _safe_user_id(update)
+    if uid != OWNER_ID:
+        msg = _safe_message_obj(update)
+        if msg:
+            await msg.reply_text("❌ Only the owner can deploy the Last Hope system.")
         return
 
-    chat_id = update.effective_chat.id
+    chat_id = _safe_chat_id(update)
+    if chat_id is None:
+        logger.warning("lasthope_command: no chat id")
+        return
     panel_text = (
         "☢️ *LAST HOPE SYSTEM ONLINE*\n\n"
         "🛡 Defense Protocols: ACTIVE\n"
@@ -478,24 +655,43 @@ async def lasthope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🛡 Enable Defense Mode", callback_data="lasthope_defense")],
     ])
 
-    message = await update.message.reply_text(
-        panel_text,
-        parse_mode="Markdown",
-        reply_markup=keyboard,
-        disable_web_page_preview=True
-    )
-
-    LAST_HOPE_MESSAGE_IDS[chat_id] = message.message_id
+    try:
+        sent = await context.bot.send_message(
+            chat_id=chat_id,
+            text=panel_text,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+            disable_web_page_preview=True
+        )
+        LAST_HOPE_MESSAGE_IDS[chat_id] = getattr(sent, 'message_id', None)
+    except Exception as e:
+        logger.error(f"Failed to send Last Hope panel: {e}")
 
 async def lasthope_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button presses from the Last Hope control panel."""
-    query = update.callback_query
-
-    if update.effective_user.id != OWNER_ID:
-        await query.answer("🚫 Only the owner can operate Last Hope.", show_alert=True)
+    query = getattr(update, 'callback_query', None)
+    if query is None:
+        logger.warning("lasthope_callback: no callback_query")
         return
 
-    action = query.data
+    uid = _safe_user_id(update)
+    if uid != OWNER_ID:
+        try:
+            await query.answer("🚫 Only the owner can operate Last Hope.", show_alert=True)
+        except Exception:
+            pass
+        return
+
+    action_raw = getattr(query, 'data', None)
+    action = str(action_raw) if action_raw is not None else ""
+    # determine chat id early for fallbacks
+    chat_id = _safe_chat_id(update)
+    if chat_id is None:
+        # fallback to callback message chat if available
+        qm = getattr(query, 'message', None)
+        if qm is not None:
+            chat = getattr(qm, 'chat', None)
+            chat_id = getattr(chat, 'id', None) if chat is not None else None
     response_map = {
         "lasthope_lock": "🔒 Lock Chat engaged. All defensive barriers are now holding the line.",
         "lasthope_alert": "🚨 Alert Admins activated. The command center has notified the senior team.",
@@ -504,7 +700,10 @@ async def lasthope_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "lasthope_defense": "🛡 Defense Mode reinforced. Emergency protocols are fully engaged.",
     }
     confirmation_text = response_map.get(action, "✅ Protocol acknowledged.")
-    await query.answer(confirmation_text, show_alert=False)
+    try:
+        await query.answer(confirmation_text, show_alert=False)
+    except Exception:
+        pass
 
     panel_text = (
         "☢️ *LAST HOPE SYSTEM ONLINE*\n\n"
@@ -519,17 +718,18 @@ async def lasthope_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "lasthope_lock":
         try:
-            await context.bot.set_chat_permissions(
-                update.effective_chat.id,
-                ChatPermissions(
-                    can_send_messages=False,
-                    can_send_media_messages=False,
-                    can_send_polls=False,
-                    can_send_other_messages=False,
-                    can_add_web_page_previews=False
-                )
-            )
-            LAST_HOPE_LOCKED_CHATS.add(update.effective_chat.id)
+            target_chat = _safe_chat_id(update)
+            if target_chat is None:
+                raise RuntimeError("no chat id")
+            # Build ChatPermissions by attribute assignment to satisfy type checkers
+            perms = ChatPermissions()
+            perms.can_send_messages = False
+            perms.can_send_media_messages = False
+            perms.can_send_polls = False
+            perms.can_send_other_messages = False
+            perms.can_add_web_page_previews = False
+            await context.bot.set_chat_permissions(target_chat, cast(Any, perms))
+            LAST_HOPE_LOCKED_CHATS.add(target_chat)
             response_text = response_map[action]
             panel_status = response_text
         except Exception as e:
@@ -549,12 +749,17 @@ async def lasthope_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         panel_status = "🚨 Alert Admins activated. Senior team notified."
 
     elif action == "lasthope_clean":
-        chat_id = update.effective_chat.id
+        chat_id = _safe_chat_id(update)
         deleted = 0
-        recent = RECENT_CHAT_MESSAGES.get(chat_id, [])[-20:]
+        if chat_id is None:
+            recent = []
+        else:
+            recent = RECENT_CHAT_MESSAGES.get(chat_id, [])[-20:]
 
         for msg_id in reversed(recent):
             try:
+                if chat_id is None:
+                    continue
                 await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
                 deleted += 1
             except Exception:
@@ -568,9 +773,13 @@ async def lasthope_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         panel_status = response_text
 
     elif action == "lasthope_scan":
-        chat_id = update.effective_chat.id
-        member_count = await context.bot.get_chat_member_count(chat_id)
-        admins = await context.bot.get_chat_administrators(chat_id)
+        chat_id = _safe_chat_id(update)
+        if chat_id is None:
+            member_count = 0
+            admins = []
+        else:
+            member_count = await context.bot.get_chat_member_count(chat_id)
+            admins = await context.bot.get_chat_administrators(chat_id)
         admin_list = ", ".join([a.user.first_name or str(a.user.id) for a in admins[:5]])
         response_text = (
             "👁 Scan Users complete.\n"
@@ -582,17 +791,17 @@ async def lasthope_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif action == "lasthope_defense":
         try:
-            await context.bot.set_chat_permissions(
-                update.effective_chat.id,
-                ChatPermissions(
-                    can_send_messages=False,
-                    can_send_media_messages=False,
-                    can_send_polls=False,
-                    can_send_other_messages=False,
-                    can_add_web_page_previews=False
-                )
-            )
-            LAST_HOPE_LOCKED_CHATS.add(update.effective_chat.id)
+            target_chat = _safe_chat_id(update)
+            if target_chat is None:
+                raise RuntimeError("no chat id")
+            perms = ChatPermissions()
+            perms.can_send_messages = False
+            perms.can_send_media_messages = False
+            perms.can_send_polls = False
+            perms.can_send_other_messages = False
+            perms.can_add_web_page_previews = False
+            await context.bot.set_chat_permissions(target_chat, cast(Any, perms))
+            LAST_HOPE_LOCKED_CHATS.add(target_chat)
             response_text = response_map[action]
             panel_status = response_text
         except Exception as e:
@@ -604,29 +813,51 @@ async def lasthope_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response_text = response_map.get(action, "⚠️ Protocol not recognized.")
         panel_status = response_text
 
-    if query.message:
+    # Update panel (try callback message first, fallback to send_message)
+    qm = getattr(query, 'message', None)
+    if qm is not None:
         try:
-            await query.message.edit_text(
+            await qm.edit_text(
                 panel_text + f"\n\n*Last action:* {panel_status}",
                 parse_mode="Markdown",
-                reply_markup=query.message.reply_markup,
+                reply_markup=getattr(qm, 'reply_markup', None),
                 disable_web_page_preview=True
             )
         except Exception as e:
             logger.warning(f"Could not update Last Hope panel: {e}")
 
-    if action == "lasthope_alert":
-        await query.message.reply_text(response_text, parse_mode="HTML")
-    else:
-        await query.message.reply_text(response_text)
+    try:
+        if action == "lasthope_alert":
+            if qm is not None:
+                await qm.reply_text(response_text, parse_mode="HTML")
+            else:
+                if chat_id is not None:
+                    await context.bot.send_message(chat_id=chat_id, text=response_text, parse_mode="HTML")
+                else:
+                    logger.warning("lasthope_callback: no chat_id available to send alert")
+        else:
+            if qm is not None:
+                await qm.reply_text(response_text)
+            else:
+                if chat_id is not None:
+                    await context.bot.send_message(chat_id=chat_id, text=response_text)
+                else:
+                    logger.warning("lasthope_callback: no chat_id available to send response")
+    except Exception:
+        pass
 
 async def freedom_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Remove the active Last Hope panel and restore normal operations."""
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("❌ Only the owner can use /Freedom.")
+    uid = _safe_user_id(update)
+    if uid != OWNER_ID:
+        msg = _safe_message_obj(update)
+        if msg:
+            await msg.reply_text("❌ Only the owner can use /Freedom.")
         return
 
-    chat_id = update.effective_chat.id
+    chat_id = _safe_chat_id(update)
+    if chat_id is None:
+        return
     message_id = LAST_HOPE_MESSAGE_IDS.pop(chat_id, None)
 
     if message_id is not None:
@@ -634,15 +865,15 @@ async def freedom_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
             if chat_id in LAST_HOPE_LOCKED_CHATS:
                 LAST_HOPE_LOCKED_CHATS.discard(chat_id)
+                restore_perms = ChatPermissions()
+                restore_perms.can_send_messages = True
+                restore_perms.can_send_media_messages = True
+                restore_perms.can_send_polls = True
+                restore_perms.can_send_other_messages = True
+                restore_perms.can_add_web_page_previews = True
                 await context.bot.set_chat_permissions(
                     chat_id,
-                    ChatPermissions(
-                        can_send_messages=True,
-                        can_send_media_messages=True,
-                        can_send_polls=True,
-                        can_send_other_messages=True,
-                        can_add_web_page_previews=True
-                    )
+                    cast(Any, restore_perms)
                 )
                 await update.message.reply_text("🕊️ /Freedom executed. Last Hope panel has been dismantled, defenses lowered, and chat restored.")
             else:
@@ -854,24 +1085,19 @@ async def get_user_from_command(update: Update, context: ContextTypes.DEFAULT_TY
         # If it's a mention like @username
         if arg.startswith('@'):
             username = arg[1:]  # Remove the @ symbol
-            
             try:
-                # Try to get the user from chat members by username
-                chat_members = await context.bot.get_chat(update.effective_chat.id)
-                
-                # Get all chat members and search for matching username
-                # Using get_chat_member with username
-                user = await context.bot.get_chat_member(
-                    chat_id=update.effective_chat.id,
-                    user_id=f"@{username}"  # Try to get by username
-                )
-                
-                if user:
-                    user_id = user.user.id
-                    return user_id, username
-                else:
+                # Try to resolve username by searching chat administrators first
+                chat_id = getattr(update.effective_chat, 'id', None)
+                if chat_id is None:
                     return None, None
-                    
+                admins = await context.bot.get_chat_administrators(chat_id)
+                for member in admins:
+                    uname = getattr(member.user, 'username', None)
+                    if uname and uname.lower() == username.lower():
+                        return member.user.id, member.user.first_name or username
+
+                # Could not resolve via admins; leave unresolved
+                return None, None
             except Exception as e:
                 logger.error(f"Failed to resolve @{username}: {e}")
                 return None, None
@@ -1030,10 +1256,12 @@ async def mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Calculate Unix timestamp for mute duration
         until_date = datetime.now() + timedelta(minutes=MUTE_DURATION)
         
+        perms = ChatPermissions()
+        perms.can_send_messages = False
         await context.bot.restrict_chat_member(
             update.effective_chat.id,
             user_id,
-            ChatPermissions(can_send_messages=False),
+            cast(Any, perms),
             until_date=int(until_date.timestamp())
         )
         await update.message.reply_text(f"🔇 {username} silenced ({MUTE_DURATION}m)")
@@ -1055,15 +1283,15 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        perms = ChatPermissions()
+        perms.can_send_messages = True
+        perms.can_send_media_messages = True
+        perms.can_send_polls = True
+        perms.can_add_web_page_previews = True
         await context.bot.restrict_chat_member(
             update.effective_chat.id,
             user_id,
-            ChatPermissions(
-                can_send_messages=True,
-                can_send_media_messages=True,
-                can_send_polls=True,
-                can_add_web_page_previews=True
-            )
+            cast(Any, perms)
         )
         await update.message.reply_text(f"🔊 {username} unmuted")
         logger.info(f"🔊 {user_id} unmuted")
@@ -1100,7 +1328,9 @@ async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ban user - STRICT: Requires /ban @username or reply ONLY."""
     try:
-        # STRICT: Check if this is a reply message context
+        # STRICT: initialize variables and check if this is a reply message context
+        user_id = None
+        username = None
         # If replying, allow ban without additional args
         if update.message.reply_to_message:
             user_id = update.message.reply_to_message.from_user.id
@@ -1127,14 +1357,20 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
             username = arg[1:]  # Remove @
             
             try:
-                # Try to resolve @username
-                user = await context.bot.get_chat_member(
-                    chat_id=update.effective_chat.id,
-                    user_id=f"@{username}"
-                )
-                if user:
-                    user_id = user.user.id
-                else:
+                # Try to resolve @username by searching chat administrators
+                chat_id = getattr(update.effective_chat, 'id', None)
+                if chat_id is None:
+                    await update.message.reply_text(f"❌ Could not determine chat id")
+                    return
+                admins = await context.bot.get_chat_administrators(chat_id)
+                resolved = False
+                for member in admins:
+                    uname = getattr(member.user, 'username', None)
+                    if uname and uname.lower() == username.lower():
+                        user_id = member.user.id
+                        resolved = True
+                        break
+                if not resolved:
                     await update.message.reply_text(f"❌ User @{username} not found in chat")
                     return
             except Exception as e:
@@ -1142,6 +1378,11 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"❌ User @{username} not found")
                 return
         
+        # Ensure we resolved a user id
+        if user_id is None:
+            await update.message.reply_text("❌ Could not determine target user to ban.")
+            return
+
         # Check if admin
         if user_id in ADMIN_IDS:
             await update.message.reply_text("❌ Cannot ban admins.")
@@ -2814,11 +3055,19 @@ Score: {aura_score}/100
 Status: {status}
 Multiplier: x{random.choice([1, 2, 3, 0.5])}
         """
-        await update.message.reply_text(aura_text, parse_mode="Markdown")
-        logger.info(f"✨ {update.effective_user.id} aura: {aura_score}")
+        msg = _safe_message_obj(update)
+        if msg:
+            await msg.reply_text(aura_text, parse_mode="Markdown")
+        else:
+            cid = _safe_chat_id(update)
+            if cid is not None:
+                await context.bot.send_message(chat_id=cid, text=aura_text, parse_mode="Markdown")
+        logger.info(f"✨ {_safe_user_id(update)} aura: {aura_score}")
     except Exception as e:
         logger.error(f"Aura error: {e}")
-        await update.message.reply_text("❌ Aura read failed")
+        msg = _safe_message_obj(update)
+        if msg:
+            await msg.reply_text("❌ Aura read failed")
 
 @user_tracking
 async def drip(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2843,11 +3092,19 @@ async def drip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━
 {drip_comments[drip_rating - 1] if drip_rating <= len(drip_comments) else random.choice(drip_comments)}
         """
-        await update.message.reply_text(drip_text, parse_mode="Markdown")
-        logger.info(f"👗 {update.effective_user.id} drip rating: {drip_rating}")
+        msg = _safe_message_obj(update)
+        if msg:
+            await msg.reply_text(drip_text, parse_mode="Markdown")
+        else:
+            cid = _safe_chat_id(update)
+            if cid is not None:
+                await context.bot.send_message(chat_id=cid, text=drip_text, parse_mode="Markdown")
+        logger.info(f"👗 {_safe_user_id(update)} drip rating: {drip_rating}")
     except Exception as e:
         logger.error(f"Drip error: {e}")
-        await update.message.reply_text("❌ Drip check failed")
+        msg = _safe_message_obj(update)
+        if msg:
+            await msg.reply_text("❌ Drip check failed")
 
 # =========================
 # ERROR HANDLER
@@ -2860,19 +3117,20 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     # Log the error
     logger.error(f"❌ Error: {error}")
     
-    # Handle specific HTTP errors
-    if hasattr(error, 'status_code'):
-        if error.status_code == 429:
+    # Handle specific HTTP errors (use getattr for safe access)
+    status_code = getattr(error, 'status_code', None)
+    if status_code is not None:
+        if status_code == 429:
             logger.warning("⚠️ Rate limited by Telegram (429)")
-        elif error.status_code == 400:
+        elif status_code == 400:
             logger.error("❌ Bad request (400) - Check bot configuration")
-        elif error.status_code == 401:
+        elif status_code == 401:
             logger.error("❌ Unauthorized (401) - Check bot token")
-        elif error.status_code == 403:
+        elif status_code == 403:
             logger.error("❌ Forbidden (403) - Bot may be blocked")
-        elif error.status_code == 404:
+        elif status_code == 404:
             logger.error("❌ Not found (404) - Chat/user not found")
-        elif error.status_code == 500:
+        elif status_code == 500:
             logger.error("❌ Telegram server error (500)")
     
     # Handle timeout errors
@@ -2884,10 +3142,11 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         logger.warning("🔌 Connection error - will retry")
     
     # Notify user if update exists
-    if update and hasattr(update, 'message'):
+    msg = getattr(update, 'message', None)
+    if msg is not None:
         try:
-            await update.message.reply_text("⚠️ Bot encountered an error. Check logs.")
-        except:
+            await msg.reply_text("⚠️ Bot encountered an error. Check logs.")
+        except Exception:
             pass
 
 # =========================
