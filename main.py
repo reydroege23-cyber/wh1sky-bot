@@ -22,6 +22,12 @@ from collections import defaultdict
 
 from functools import wraps
 from config import *
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+)
+logger = logging.getLogger(__name__)
 async def flush_pending_saves():
     """Periodically flush queued saves to disk."""
     global _last_save_time
