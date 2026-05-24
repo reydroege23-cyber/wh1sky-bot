@@ -6,6 +6,7 @@ Advanced Telegram Bot with AI Integration & Premium Features
 # pyright: reportOptionalMemberAccess=false, reportOptionalSubscript=false, reportOptionalCall=false
 
 from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
@@ -160,6 +161,34 @@ def _safe_chat_id(update) -> int | None:
         return getattr(chat, 'id', None) if chat is not None else None
     except Exception:
         return None
+
+
+async def safe_delete_message(bot, chat_id, message_id) -> bool:
+    """Safely delete a message, validating IDs and handling BadRequest.
+
+    Returns True if deleted, False otherwise.
+    """
+    try:
+        if chat_id is None or message_id is None:
+            logger.debug(f"safe_delete_message: missing chat_id or message_id: {chat_id}, {message_id}")
+            return False
+        # coerce to int where possible
+        try:
+            cid = int(chat_id)
+            mid = int(message_id)
+        except Exception:
+            logger.debug(f"safe_delete_message: invalid ids: {chat_id}, {message_id}")
+            return False
+
+        await bot.delete_message(chat_id=cid, message_id=mid)
+        return True
+    except BadRequest as e:
+        # Common reasons: message to delete not found, chat not found, message too old
+        logger.warning(f"Could not delete message (chat={chat_id} mid={message_id}): {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error deleting message (chat={chat_id} mid={message_id}): {e}")
+        return False
 
 
 def _safe_query_obj(obj):
@@ -760,8 +789,8 @@ async def lasthope_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 if chat_id is None:
                     continue
-                await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
-                deleted += 1
+                if await safe_delete_message(context.bot, chat_id, msg_id):
+                    deleted += 1
             except Exception:
                 pass
 
@@ -862,7 +891,9 @@ async def freedom_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if message_id is not None:
         try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+            deleted_ok = await safe_delete_message(context.bot, chat_id, message_id)
+            if not deleted_ok:
+                logger.debug(f"freedom_command: original panel message could not be deleted: chat={chat_id} mid={message_id}")
             if chat_id in LAST_HOPE_LOCKED_CHATS:
                 LAST_HOPE_LOCKED_CHATS.discard(chat_id)
                 restore_perms = ChatPermissions()
@@ -1440,8 +1471,10 @@ async def nuke(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Delete the command message first
         try:
-            await context.bot.delete_message(chat_id, message_id)
-            deleted += 1
+            if await safe_delete_message(context.bot, chat_id, message_id):
+                deleted += 1
+            else:
+                logger.warning(f"Could not delete command message: chat={chat_id} mid={message_id}")
         except Exception as e:
             logger.warning(f"Could not delete command message: {e}")
         
@@ -1450,10 +1483,14 @@ async def nuke(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if msg_id < 1:
                 break
             try:
-                await context.bot.delete_message(chat_id, msg_id)
-                deleted += 1
+                if await safe_delete_message(context.bot, chat_id, msg_id):
+                    deleted += 1
+                else:
+                    # Message may not exist or already deleted
+                    logger.debug(f"Could not delete message {msg_id} in {chat_id}")
+                    failed += 1
+                    continue
             except Exception as e:
-                # Message may not exist or already deleted
                 logger.debug(f"Could not delete message {msg_id}: {e}")
                 failed += 1
                 continue
@@ -1468,8 +1505,8 @@ async def nuke(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Delete confirmation after 3 seconds
         try:
             await asyncio.sleep(3)
-            await context.bot.delete_message(chat_id, result_msg.message_id)
-        except:
+            await safe_delete_message(context.bot, chat_id, result_msg.message_id)
+        except Exception:
             pass
             
     except Exception as e:
