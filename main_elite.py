@@ -626,6 +626,8 @@ def setup_bot():
     # Commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("update", update_command))
+    app.add_handler(CommandHandler("updates", update_command))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("warn", warn))

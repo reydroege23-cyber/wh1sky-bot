@@ -355,6 +355,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/kurdishezdi` - Special command 🇮🇶
 • `/Serok` - Music link 🎵
 • `/ataturk` - Special command 🇹🇷
+• `/update` or `/updates` - Latest features and news
 
 **👮 ADMIN COMMANDS (14):**
 *Reply to a message to execute:*
@@ -454,48 +455,48 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 **🎮 FUN COMMANDS:**
-• /roll [sides] - Roll dice
-• /coin - Flip a coin
-• /calc <math> - Calculator
-• /echo <text> - Echo text
-• /time - Current time
-• /roast - Get a funny roast
-• /ship <user1> <user2> - Love calculator
-• /rate <thing> - Rate something
-• /meme - Random meme
-• /truth - Truth question
-• /dare - Dare challenge
-• /compliment - Get a compliment
-• /insult - Get an insult
-• /ascii <text> - ASCII art
-• /hack <user> - Fake hacking
-• /fancy <text> - Fancy fonts
-• /hotrate - Hotness rating
-• /iq <user> - IQ score
-• /gayrate - Fun vibes meter
+• `/roll [sides]` - Roll dice
+• `/coin` - Flip a coin
+• `/calc <math>` - Calculator
+• `/echo <text>` - Echo text
+• `/time` - Current time
+• `/roast` - Get a funny roast
+• `/ship <user1> <user2>` - Love calculator
+• `/rate <thing>` - Rate something
+• `/meme` - Random meme
+• `/truth` - Truth question
+• `/dare` - Dare challenge
+• `/compliment` - Get a compliment
+• `/insult` - Get an insult
+• `/ascii <text>` - ASCII art
+• `/hack <user>` - Fake hacking
+• `/fancy <text>` - Fancy fonts
+• `/hotrate` - Hotness rating
+• `/iq <user>` - IQ score
+• `/gayrate` - Fun vibes meter
 
 **🤖 AI COMMANDS:**
-• /ai <question> - Ask Whisky AI
-• /speak - AI respond mode (admin)
+• `/ai <question>` - Ask Whisky AI
+• `/speak` - AI respond mode (admin)
 
 **🛡️ ADMIN COMMANDS:**
-• /warn <user> - Issue warning
-• /warns <user> - Check warnings
-• /clear_warns - Clear all warnings
-• /Shut <user> - Silence user
-• /unmute - Restore user
-• /kick - Remove user
-• /ban - Ban user
-• /unban - Unban user
-• /info <user> - User info
-• /admins - List admins
+• `/warn <user>` - Issue warning
+• `/warns <user>` - Check warnings
+• `/clear_warns` - Clear all warnings
+• `/Shut <user>` - Silence user
+• `/unmute` - Restore user
+• `/kick` - Remove user
+• `/ban` - Ban user
+• `/unban` - Unban user
+• `/info <user>` - User info
+• `/admins` - List admins
 
 **📊 UTILITY:**
-• /start - Welcome message
-• /help - Full command list
-• /stats - Your statistics
-• /ping - Bot status
-• /updates - This message
+• `/start` - Welcome message
+• `/help` - Full command list
+• `/update` or `/updates` - This message
+• `/stats` - Your statistics
+• `/ping` - Bot status
 
 **📝 VERSION:** 3.0+
 
