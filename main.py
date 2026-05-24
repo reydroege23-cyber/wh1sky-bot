@@ -18,96 +18,9 @@ from datetime import timedelta, datetime
 import logging
 import json
 from pathlib import Path
+
 from functools import wraps
 from config import *
-import asyncio
-import random
-import base64
-import traceback
-import os
-from collections import defaultdict
-
-# =========================
-# LOGGING SETUP (ENHANCED)
-# =========================
-
-logging.basicConfig(
-    level=LOG_LEVEL,
-    format=LOG_FORMAT,
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# =========================
-# AI SETUP (OpenRouter)
-# =========================
-
-try:
-    logger.info("🔧 Configuring OpenRouter AI...")
-    logger.info(f"📝 API Key present: {bool(OPENROUTER_API_KEY)}")
-    logger.info(f"🤖 Model: {AI_MODEL}")
-    
-    # Initialize OpenRouter client (OpenAI-compatible)
-    ai_client = OpenAI(
-        base_url=OPENROUTER_BASE_URL,
-        api_key=OPENROUTER_API_KEY
-    )
-    logger.info("✅ OpenRouter configured successfully")
-    
-    # Mark as available - test will happen on first /ai or /test command
-    AI_AVAILABLE = True
-    logger.info("✅ AI will be tested on first use")
-        
-except Exception as e:
-    logger.warning(f"⚠️ AI configuration failed: {type(e).__name__}: {e}")
-    import traceback
-    logger.warning(traceback.format_exc())
-    AI_AVAILABLE = False
-    ai_client = None
-
-# =========================
-# DATA STORAGE (ENHANCED)
-# =========================
-
-def load_data():
-    """Load bot data with enhanced error handling."""
-    if Path(DATA_FILE).exists():
-        try:
-            with open(DATA_FILE, 'r') as f:
-                data = json.load(f)
-                logger.info(f"📦 Loaded data for {len(data.get('stats', {}))} users")
-                return data
-        except Exception as e:
-            logger.error(f"❌ Error loading data: {e}")
-    return {"warnings": {}, "stats": {}, "mutes": {}, "metadata": {}}
-
-def save_data(data):
-    """Save bot data with enhanced error handling."""
-    try:
-        with open(DATA_FILE, 'w') as f:
-            json.dump(data, f, indent=4)
-    except Exception as e:
-        logger.error(f"❌ Error saving data: {e}")
-
-# Load initial data
-bot_data = load_data()
-
-# =========================
-# BATCHED SAVE SYSTEM (PERFORMANCE)
-# =========================
-
-_save_queue = {}
-_last_save_time = datetime.now()
-_save_lock = asyncio.Lock()
-
-async def queue_data_save():
-    """Queue data save instead of writing immediately."""
-    global _save_queue
-    _save_queue = {"pending": True}
-
 async def flush_pending_saves():
     """Periodically flush queued saves to disk."""
     global _last_save_time
@@ -517,6 +430,8 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # LAST HOPE COMMANDS
 
 LAST_HOPE_MESSAGE_IDS = {}
+LAST_HOPE_LOCKED_CHATS = set()
+RECENT_CHAT_MESSAGES = defaultdict(list)
 
 async def lasthope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Launch the owner-only Last Hope control panel."""
@@ -555,7 +470,6 @@ async def lasthope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def lasthope_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button presses from the Last Hope control panel."""
     query = update.callback_query
-    await query.answer()
 
     if update.effective_user.id != OWNER_ID:
         await query.answer("🚫 Only the owner can operate Last Hope.", show_alert=True)
@@ -569,9 +483,122 @@ async def lasthope_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "lasthope_scan": "👁 Scan Users launched. Threat signatures and suspicious accounts are being reviewed.",
         "lasthope_defense": "🛡 Defense Mode reinforced. Emergency protocols are fully engaged.",
     }
+    confirmation_text = response_map.get(action, "✅ Protocol acknowledged.")
+    await query.answer(confirmation_text, show_alert=False)
 
-    response_text = response_map.get(action, "⚠️ Protocol not recognized.")
-    await query.message.reply_text(response_text)
+    panel_text = (
+        "☢️ *LAST HOPE SYSTEM ONLINE*\n\n"
+        "🛡 Defense Protocols: ACTIVE\n"
+        "📡 Raid Detection: ENABLED\n"
+        "⚔ Emergency Moderation Mode: ENGAGED\n\n"
+        "*Threat Level:* HIGH\n"
+        "*Control Matrix:* OWNER ONLY\n\n"
+        "Select a protocol to execute:"
+    )
+    panel_status = "Protocol engaged."
+
+    if action == "lasthope_lock":
+        try:
+            await context.bot.set_chat_permissions(
+                update.effective_chat.id,
+                ChatPermissions(
+                    can_send_messages=False,
+                    can_send_media_messages=False,
+                    can_send_polls=False,
+                    can_send_other_messages=False,
+                    can_add_web_page_previews=False
+                )
+            )
+            LAST_HOPE_LOCKED_CHATS.add(update.effective_chat.id)
+            response_text = response_map[action]
+            panel_status = response_text
+        except Exception as e:
+            logger.error(f"Lock chat error: {e}")
+            response_text = "❌ Failed to lock chat. Check bot permissions."
+            panel_status = response_text
+
+    elif action == "lasthope_alert":
+        admin_links = " ".join([
+            f"<a href='tg://user?id={aid}'>Admin</a>" for aid in ADMIN_IDS
+        ])
+        response_text = (
+            "🚨 ALERT ADMINS PROTOCOL ENGAGED\n"
+            "Attention team: an emergency has been declared.\n"
+            f"{admin_links}"
+        )
+        panel_status = "🚨 Alert Admins activated. Senior team notified."
+
+    elif action == "lasthope_clean":
+        chat_id = update.effective_chat.id
+        deleted = 0
+        recent = RECENT_CHAT_MESSAGES.get(chat_id, [])[-20:]
+
+        for msg_id in reversed(recent):
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                deleted += 1
+            except Exception:
+                pass
+
+        response_text = (
+            f"🧹 Clean Spam executed. Removed {deleted} recent non-command messages."
+            if deleted else
+            "🧹 Clean Spam executed. No recent spam messages were available to remove."
+        )
+        panel_status = response_text
+
+    elif action == "lasthope_scan":
+        chat_id = update.effective_chat.id
+        member_count = await context.bot.get_chat_member_count(chat_id)
+        admins = await context.bot.get_chat_administrators(chat_id)
+        admin_list = ", ".join([a.user.first_name or str(a.user.id) for a in admins[:5]])
+        response_text = (
+            "👁 Scan Users complete.\n"
+            f"Total members: {member_count}\n"
+            f"Admins on duty: {admin_list}\n"
+            "Coverage: Primary threat detection is online."
+        )
+        panel_status = "👁 Scan Users complete. Threat scan delivered."
+
+    elif action == "lasthope_defense":
+        try:
+            await context.bot.set_chat_permissions(
+                update.effective_chat.id,
+                ChatPermissions(
+                    can_send_messages=False,
+                    can_send_media_messages=False,
+                    can_send_polls=False,
+                    can_send_other_messages=False,
+                    can_add_web_page_previews=False
+                )
+            )
+            LAST_HOPE_LOCKED_CHATS.add(update.effective_chat.id)
+            response_text = response_map[action]
+            panel_status = response_text
+        except Exception as e:
+            logger.error(f"Defense mode error: {e}")
+            response_text = "❌ Failed to enable defense mode. Check bot permissions."
+            panel_status = response_text
+
+    else:
+        response_text = response_map.get(action, "⚠️ Protocol not recognized.")
+        panel_status = response_text
+
+    if query.message:
+        try:
+            await query.message.edit_text(
+                panel_text + f"\n\n*Last action:* {panel_status}",
+                parse_mode="Markdown",
+                reply_markup=query.message.reply_markup,
+                disable_web_page_preview=True
+            )
+        except Exception as e:
+            logger.warning(f"Could not update Last Hope panel: {e}")
+
+    if action == "lasthope_alert":
+        await query.message.reply_text(response_text, parse_mode="HTML")
+    else:
+        await query.message.reply_text(response_text)
 
 async def freedom_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Remove the active Last Hope panel and restore normal operations."""
@@ -585,7 +612,21 @@ async def freedom_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if message_id is not None:
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-            await update.message.reply_text("🕊️ /Freedom executed. Last Hope panel has been dismantled and the channel is clear.")
+            if chat_id in LAST_HOPE_LOCKED_CHATS:
+                LAST_HOPE_LOCKED_CHATS.discard(chat_id)
+                await context.bot.set_chat_permissions(
+                    chat_id,
+                    ChatPermissions(
+                        can_send_messages=True,
+                        can_send_media_messages=True,
+                        can_send_polls=True,
+                        can_send_other_messages=True,
+                        can_add_web_page_previews=True
+                    )
+                )
+                await update.message.reply_text("🕊️ /Freedom executed. Last Hope panel has been dismantled, defenses lowered, and chat restored.")
+            else:
+                await update.message.reply_text("🕊️ /Freedom executed. Last Hope panel has been dismantled, but chat permissions were not changed because Last Hope did not lock this chat.")
         except Exception as e:
             logger.warning(f"Could not delete Last Hope message: {e}")
             await update.message.reply_text("🕊️ Last Hope panel removal attempted, but the original panel could not be deleted.")
@@ -684,7 +725,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_id = str(update.effective_user.id)
+    chat_id = update.effective_chat.id
     text = update.message.text.lower()
+
+    # Track recent non-command messages for spam cleanup
+    RECENT_CHAT_MESSAGES[chat_id].append(update.message.message_id)
+    if len(RECENT_CHAT_MESSAGES[chat_id]) > 100:
+        RECENT_CHAT_MESSAGES[chat_id].pop(0)
     
     try:
         # SPEAK MODE - Whisky AI responds to all messages
