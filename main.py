@@ -28,6 +28,19 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 )
 logger = logging.getLogger(__name__)
+# AI client initialization (use utils.ai_client if available)
+try:
+    from utils import ai_client as _ai_client  # local alias
+    ai_client = _ai_client
+    AI_AVAILABLE = bool(OPENROUTER_API_KEY) and ai_client is not None
+    if AI_AVAILABLE:
+        logger.info("✅ OpenRouter AI client configured")
+    else:
+        logger.warning("⚠️ OpenRouter API key missing or client not configured; AI disabled")
+except Exception as e:
+    AI_AVAILABLE = False
+    ai_client = None
+    logger.warning(f"⚠️ AI client not available: {e}")
 async def flush_pending_saves():
     """Periodically flush queued saves to disk."""
     global _last_save_time
