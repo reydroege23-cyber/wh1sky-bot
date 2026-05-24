@@ -123,6 +123,71 @@ ACHIEVEMENTS = {
         "emoji": "🔥",
         "threshold": 5
     },
+    # Additional achievements to reach full set
+    "first_win": {
+        "name": "First Victory",
+        "description": "Win your first game",
+        "category": "Gameplay",
+        "reward": 25,
+        "emoji": "⚔️",
+        "threshold": 1
+    },
+    "winning_spree": {
+        "name": "Winning Spree",
+        "description": "Win 10 games in total",
+        "category": "Gameplay",
+        "reward": 500,
+        "emoji": "🏆",
+        "threshold": 10
+    },
+    "veteran": {
+        "name": "Veteran Player",
+        "description": "Play 100 games",
+        "category": "Gameplay",
+        "reward": 300,
+        "emoji": "🎖️",
+        "threshold": 100
+    },
+    "big_winner": {
+        "name": "Big Winner",
+        "description": "Win a single pot of 1,000+ coins",
+        "category": "Gameplay",
+        "reward": 800,
+        "emoji": "💥",
+        "threshold": 1000
+    },
+    "exchange_master": {
+        "name": "Exchange Master",
+        "description": "Sent 5,000+ coins",
+        "category": "Economy",
+        "reward": 600,
+        "emoji": "🔁",
+        "threshold": 5000
+    },
+    "collector": {
+        "name": "Collector",
+        "description": "Received 10,000+ coins",
+        "category": "Economy",
+        "reward": 1000,
+        "emoji": "📦",
+        "threshold": 10000
+    },
+    "community_favorite": {
+        "name": "Community Favorite",
+        "description": "Receive 50 likes from other players (simulated)",
+        "category": "Social",
+        "reward": 150,
+        "emoji": "💖",
+        "threshold": 50
+    },
+    "social_butterfly": {
+        "name": "Social Butterfly",
+        "description": "Participate in 20 community events (simulated)",
+        "category": "Social",
+        "reward": 200,
+        "emoji": "🦋",
+        "threshold": 20
+    },
 }
 
 
@@ -277,17 +342,20 @@ def format_profile_card(user_id: int, db: EconomyDatabase) -> str:
         completion = int((unlocked_count / total_achievements) * 100) if total_achievements > 0 else 0
         
         profile = f"""
-╔══════════════════════════════════╗
-║   👤 PLAYER PROFILE - {username:<17}║
-╠══════════════════════════════════╣
-║ 💰 Balance: {balance:>25} coins│
-╠══════════════════════════════════╣
-║ 🏆 Achievements: {unlocked_count:>2}/{total_achievements} ({completion}%) ║
-╠══════════════════════════════════╣
-║ 💸 Coins Sent: {stats.get('coins_sent', 0):>21}│
-║ 📬 Coins Received: {stats.get('coins_received', 0):>15}│
-╚══════════════════════════════════╝
-"""
+    ╔══════════════════════════════════╗
+    ║   👤 PLAYER PROFILE - {username:<17}║
+    ╠══════════════════════════════════╣
+    ║ 💰 Balance: {balance:>25} coins│
+    ╠══════════════════════════════════╣
+    ║ 🏆 Achievements: {unlocked_count:>2}/{total_achievements} ({completion}%) ║
+    ╠══════════════════════════════════╣
+    ║ 🎮 Games: {stats.get('games_played', 0):>26}│
+    ║ 🏅 Wins: {stats.get('total_wins', 0):>27}│
+    ╠══════════════════════════════════╣
+    ║ 💸 Coins Sent: {stats.get('coins_sent', 0):>21}│
+    ║ 📬 Coins Received: {stats.get('coins_received', 0):>15}│
+    ╚══════════════════════════════════╝
+    """
         return profile
     
     except Exception as e:

@@ -86,13 +86,15 @@ def test_database_cleanup():
     
     # Clean up old test database file first
     import os
-    test_db_file = "test_economy_cleanup.db"
+    # The EconomyDatabase stores DB files in the data/ directory
+    test_db_file = "data/test_economy_cleanup.db"
     if os.path.exists(test_db_file):
         os.remove(test_db_file)
         print("🧹 Removed old test database")
     
     # Create fresh test database
-    db = EconomyDatabase(test_db_file)
+    # Pass just the filename; EconomyDatabase will place it under data/
+    db = EconomyDatabase('test_economy_cleanup.db')
     
     # Add some valid users (add_balance calls register_user internally)
     print("\n➕ Adding valid test users...")

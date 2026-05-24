@@ -16,8 +16,8 @@ def test_leaderboard():
     print("LEADERBOARD FIX TEST")
     print("="*50 + "\n")
     
-    # Connect to database
-    db_file = "economy.db"
+    # Connect to database (use persistent data directory copy)
+    db_file = "data/economy.db"
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
     

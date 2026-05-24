@@ -12,10 +12,10 @@ def test_syntax():
     """Test Python syntax of all files."""
     print("🔍 Testing Python syntax...")
     files = ['main.py', 'config.py', 'database.py', 'utils.py']
-    
+
     for file in files:
         try:
-            with open(file, 'r') as f:
+            with open(file, 'r', encoding='utf-8') as f:
                 compile(f.read(), file, 'exec')
             print(f"  ✅ {file}")
         except SyntaxError as e:

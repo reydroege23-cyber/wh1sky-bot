@@ -252,6 +252,11 @@ class EconomyDatabase:
                         user_id INTEGER PRIMARY KEY,
                         coins_sent INTEGER DEFAULT 0,
                         coins_received INTEGER DEFAULT 0,
+                        games_played INTEGER DEFAULT 0,
+                        total_wins INTEGER DEFAULT 0,
+                        win_streak INTEGER DEFAULT 0,
+                        max_win_streak INTEGER DEFAULT 0,
+                        biggest_win INTEGER DEFAULT 0,
                         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY(user_id) REFERENCES users(user_id)
                     )
@@ -632,7 +637,12 @@ class EconomyDatabase:
                     return {
                         'user_id': user_id,
                         'coins_sent': 0,
-                        'coins_received': 0
+                        'coins_received': 0,
+                        'games_played': 0,
+                        'total_wins': 0,
+                        'win_streak': 0,
+                        'max_win_streak': 0,
+                        'biggest_win': 0
                     }
         except Exception as e:
             logger.error(f"❌ Error getting player stats: {e}")
