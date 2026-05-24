@@ -3,11 +3,12 @@
 Advanced Telegram Bot with AI Integration & Premium Features
 """
 
-from telegram import Update, ChatPermissions
+from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     MessageHandler,
     CommandHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters
 )
@@ -356,6 +357,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/Serok` - Music link 🎵
 • `/ataturk` - Special command 🇹🇷
 • `/update` or `/updates` - Latest features and news
+• `/lasthope` - Launch the owner-only control panel
+• `/Freedom` - Dismantle Last Hope and clear the command panel
 
 **👮 ADMIN COMMANDS (14):**
 *Reply to a message to execute:*
@@ -495,6 +498,8 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/start` - Welcome message
 • `/help` - Full command list
 • `/update` or `/updates` - This message
+• `/lasthope` - Launch the owner-only control panel
+• `/Freedom` - Dismantle the Last Hope system
 • `/stats` - Your statistics
 • `/ping` - Bot status
 
@@ -507,6 +512,85 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Update command error: {e}")
         await update.message.reply_text("❌ Failed to load updates")
+
+# =========================
+# LAST HOPE COMMANDS
+
+LAST_HOPE_MESSAGE_IDS = {}
+
+async def lasthope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Launch the owner-only Last Hope control panel."""
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("❌ Only the owner can deploy the Last Hope system.")
+        return
+
+    chat_id = update.effective_chat.id
+    panel_text = (
+        "☢️ *LAST HOPE SYSTEM ONLINE*\n\n"
+        "🛡 Defense Protocols: ACTIVE\n"
+        "📡 Raid Detection: ENABLED\n"
+        "⚔ Emergency Moderation Mode: ENGAGED\n\n"
+        "*Threat Level:* HIGH\n"
+        "*Control Matrix:* OWNER ONLY\n\n"
+        "Select a protocol to execute:"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔒 Lock Chat", callback_data="lasthope_lock")],
+        [InlineKeyboardButton("🚨 Alert Admins", callback_data="lasthope_alert")],
+        [InlineKeyboardButton("🧹 Clean Spam", callback_data="lasthope_clean")],
+        [InlineKeyboardButton("👁 Scan Users", callback_data="lasthope_scan")],
+        [InlineKeyboardButton("🛡 Enable Defense Mode", callback_data="lasthope_defense")],
+    ])
+
+    message = await update.message.reply_text(
+        panel_text,
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+        disable_web_page_preview=True
+    )
+
+    LAST_HOPE_MESSAGE_IDS[chat_id] = message.message_id
+
+async def lasthope_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle button presses from the Last Hope control panel."""
+    query = update.callback_query
+    await query.answer()
+
+    if update.effective_user.id != OWNER_ID:
+        await query.answer("🚫 Only the owner can operate Last Hope.", show_alert=True)
+        return
+
+    action = query.data
+    response_map = {
+        "lasthope_lock": "🔒 Lock Chat engaged. All defensive barriers are now holding the line.",
+        "lasthope_alert": "🚨 Alert Admins activated. The command center has notified the senior team.",
+        "lasthope_clean": "🧹 Clean Spam initiated. Scanners are sweeping the channel for hostile activity.",
+        "lasthope_scan": "👁 Scan Users launched. Threat signatures and suspicious accounts are being reviewed.",
+        "lasthope_defense": "🛡 Defense Mode reinforced. Emergency protocols are fully engaged.",
+    }
+
+    response_text = response_map.get(action, "⚠️ Protocol not recognized.")
+    await query.message.reply_text(response_text)
+
+async def freedom_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remove the active Last Hope panel and restore normal operations."""
+    if update.effective_user.id != OWNER_ID:
+        await update.message.reply_text("❌ Only the owner can use /Freedom.")
+        return
+
+    chat_id = update.effective_chat.id
+    message_id = LAST_HOPE_MESSAGE_IDS.pop(chat_id, None)
+
+    if message_id is not None:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+            await update.message.reply_text("🕊️ /Freedom executed. Last Hope panel has been dismantled and the channel is clear.")
+        except Exception as e:
+            logger.warning(f"Could not delete Last Hope message: {e}")
+            await update.message.reply_text("🕊️ Last Hope panel removal attempted, but the original panel could not be deleted.")
+    else:
+        await update.message.reply_text("⚠️ No active Last Hope panel found.")
 
 # =========================
 # TEST COMMAND (DIAGNOSTIC)
@@ -2762,6 +2846,9 @@ def setup_bot():
     # Commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("lasthope", lasthope_command))
+    app.add_handler(CommandHandler("Freedom", freedom_command))
+    app.add_handler(CommandHandler("freedom", freedom_command))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("update", update_command))
@@ -2851,6 +2938,7 @@ def setup_bot():
     app.add_handler(CommandHandler("sus", sus))
     app.add_handler(CommandHandler("aura", aura))
     app.add_handler(CommandHandler("drip", drip))
+    app.add_handler(CallbackQueryHandler(lasthope_callback))
 
     
     # Messages (must be last)
