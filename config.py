@@ -49,33 +49,7 @@ MUTE_DURATION = 10
 # =========================
 
 BAD_WORDS = [
-    "fuck arya",
-    "rape arya",
-    "fuck u arya",
-    "fuck arya mother",
-    "fuck arya dad",
-    "fuck arya father",
-    "fuck arya mom",
-    "sex with arya",
-    "/fuck arya",
-    "/rape arya",
-    "/sex arya","fuck arya",
-    "arya bitch",
-    "arya slut",
-    "arya trash",
-    "arya loser",
-    "arya idiot",
-    "arya clown",
-    "arya sucks",
-    "ugly arya",
-    "stupid arya",
-    "hate arya",
-    "shut up arya",
-    "arya annoying",
-    "arya fake",
-    "arya toxic",
-    "arya cringe",
-    "arya pathetic"
+  "rape",
 
 ]
 
