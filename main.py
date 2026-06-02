@@ -12,6 +12,7 @@ from telegram.ext import (
     MessageHandler,
     CommandHandler,
     CallbackQueryHandler,
+    ChatJoinRequestHandler,
     ContextTypes,
     filters
 )
@@ -63,7 +64,7 @@ def load_data():
     except Exception as e:
         logger.error(f"❌ Error loading data: {e}")
     # Default structure
-    return {"warnings": {}, "stats": {}, "mutes": {}, "metadata": {}}
+    return {"warnings": {}, "stats": {}, "mutes": {}, "metadata": {}, "forever_banned": []}
 
 
 def save_data(data: dict):
@@ -124,6 +125,8 @@ async def queue_data_save():
 
 # Load initial bot data
 bot_data = load_data()
+# Ensure legacy data always contains forever ban list
+bot_data.setdefault("forever_banned", [])
 
 
 # =========================
@@ -238,6 +241,31 @@ def admin_only(func):
         
         return await func(update, context)
     return wrapper
+
+
+def owner_only(func):
+    """Allow only the configured owner to run the command."""
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = _safe_user_id(update)
+
+        if user_id is None:
+            logger.warning("🚫 owner_only: no user in update")
+            msg = _safe_message_obj(update)
+            if msg:
+                await msg.reply_text("❌ Could not determine user.")
+            return
+
+        if user_id != OWNER_ID:
+            logger.warning(f"🚫 Unauthorized owner-only access by {user_id}")
+            msg = _safe_message_obj(update)
+            if msg:
+                await msg.reply_text("❌ You are not authorized to use this command.")
+            return
+
+        return await func(update, context)
+    return wrapper
+
 
 def reply_required(func):
     """Check if command is a reply."""
@@ -1100,41 +1128,58 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_user_from_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Extract user from reply or @username mention.
-    Returns: (user_id, username) or (None, None) if not found
+    Extract user from reply, @username mention, or numeric user_id.
+    Returns: (user_id, username) or (None, None) if not found.
     """
-    # OPTION 1: Check if replying to someone
     if update.message.reply_to_message:
-        user_id = update.message.reply_to_message.from_user.id
-        username = update.message.reply_to_message.from_user.first_name or "User"
-        return user_id, username
-    
-    # OPTION 2: Check for @username mention in command args
-    if context.args:
-        arg = context.args[0]
+        user = update.message.reply_to_message.from_user
+        return user.id, user.first_name or user.username or "User"
+
+    if not context.args:
+        return None, None
+
+    arg = context.args[0].strip()
+
+    # Numeric user ID provided directly
+    if arg.isdigit():
+        try:
+            user_id = int(arg)
+            username = str(user_id)
+            chat_id = _safe_chat_id(update)
+            if chat_id is not None:
+                try:
+                    member = await context.bot.get_chat_member(chat_id, user_id)
+                    user = member.user
+                    username = user.first_name or user.username or username
+                except Exception:
+                    pass
+            return user_id, username
+        except ValueError:
+            return None, None
+
+    # Username mention provided
+    if arg.startswith('@'):
+        username = arg[1:]
+        try:
+            chat_obj = await context.bot.get_chat(arg)
+            user_id = chat_obj.id
+            display_name = getattr(chat_obj, 'first_name', None) or getattr(chat_obj, 'username', None) or username
+            return user_id, display_name
+        except Exception as e:
+            logger.debug(f"Could not resolve @username via get_chat: {e}")
         
-        # If it's a mention like @username
-        if arg.startswith('@'):
-            username = arg[1:]  # Remove the @ symbol
+        # Fall back to local chat member lookup if username is in the group
+        chat_id = _safe_chat_id(update)
+        if chat_id is not None:
             try:
-                # Try to resolve username by searching chat administrators first
-                chat_id = getattr(update.effective_chat, 'id', None)
-                if chat_id is None:
-                    return None, None
-                admins = await context.bot.get_chat_administrators(chat_id)
-                for member in admins:
+                members = await context.bot.get_chat_administrators(chat_id)
+                for member in members:
                     uname = getattr(member.user, 'username', None)
                     if uname and uname.lower() == username.lower():
                         return member.user.id, member.user.first_name or username
-
-                # Could not resolve via admins; leave unresolved
-                return None, None
             except Exception as e:
-                logger.error(f"Failed to resolve @{username}: {e}")
-                return None, None
-        
-        return None, None
-    
+                logger.debug(f"Fallback admin lookup failed for @{username}: {e}")
+
     return None, None
 
 # =========================
@@ -1447,6 +1492,125 @@ async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Unban error: {e}")
         await update.message.reply_text("❌ Failed to unban user")
+
+@owner_only
+async def foreverban(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Permanently blacklist a user and ban them from the group."""
+    try:
+        user_id, username = await get_user_from_command(update, context)
+        if not user_id:
+            await update.message.reply_text(
+                "❌ Please reply to a message, use @username, or provide a user ID.\n"
+                "Example: `/foreverban @username` or `/foreverban 123456789`"
+            )
+            return
+
+        if user_id in ADMIN_IDS:
+            await update.message.reply_text("❌ Cannot forever ban admins.")
+            return
+
+        if user_id not in bot_data["forever_banned"]:
+            bot_data["forever_banned"].append(user_id)
+            await queue_data_save()
+
+        await context.bot.ban_chat_member(update.effective_chat.id, user_id)
+        await update.message.reply_text(
+            f"🔨 FOREVER BAN ACTIVATED\n"
+            f"👤 User: {username}\n"
+            f"🆔 ID: {user_id}\n"
+            f"♾️ Status: Permanently Blacklisted\n"
+            f"🛡️ Auto Re-Ban: Enabled"
+        )
+        logger.warning(f"♾️ Forever banned {user_id} ({username}) by owner {update.effective_user.id}")
+    except Exception as e:
+        logger.error(f"Foreverban error: {e}")
+        await update.message.reply_text("❌ Failed to forever ban user")
+
+@owner_only
+async def foreverunban(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Remove a user from the permanent blacklist."""
+    try:
+        user_id, username = await get_user_from_command(update, context)
+        if not user_id:
+            await update.message.reply_text(
+                "❌ Please reply to a message, use @username, or provide a user ID.\n"
+                "Example: `/foreverunban @username` or `/foreverunban 123456789`"
+            )
+            return
+
+        if user_id in bot_data["forever_banned"]:
+            bot_data["forever_banned"].remove(user_id)
+            await queue_data_save()
+
+        try:
+            await context.bot.unban_chat_member(update.effective_chat.id, user_id)
+        except Exception:
+            pass
+
+        await update.message.reply_text(f"✅ Removed {username} from permanent blacklist")
+        logger.info(f"♾️ Forever unbanned {user_id} ({username}) by owner {update.effective_user.id}")
+    except Exception as e:
+        logger.error(f"Foreverunban error: {e}")
+        await update.message.reply_text("❌ Failed to forever unban user")
+
+@owner_only
+async def foreverbans(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show all permanently blacklisted users."""
+    try:
+        banned = bot_data.get("forever_banned", [])
+        if not banned:
+            await update.message.reply_text("♾️ No users are permanently blacklisted.")
+            return
+
+        lines = []
+        for user_id in banned:
+            username = str(user_id)
+            try:
+                chat_obj = await context.bot.get_chat(user_id)
+                name = getattr(chat_obj, 'first_name', None) or getattr(chat_obj, 'username', None)
+                if name:
+                    username = name
+            except Exception:
+                pass
+            lines.append(f"• {username} — `{user_id}`")
+
+        await update.message.reply_text(
+            "♾️ Permanently Blacklisted Users:\n" + "\n".join(lines),
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"Foreverbans error: {e}")
+        await update.message.reply_text("❌ Failed to fetch permanently banned users")
+
+async def enforce_forever_ban(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE, reason: str):
+    """Ban a user immediately if they are on the permanent blacklist."""
+    if user_id not in bot_data.get("forever_banned", []):
+        return
+
+    try:
+        await context.bot.ban_chat_member(chat_id, user_id)
+        logger.warning(f"♾️ Auto re-banned {user_id} after {reason}")
+    except Exception as e:
+        logger.error(f"Auto re-ban failed for {user_id}: {e}")
+
+async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Enforce permanent blacklist when new users join or are added."""
+    if not update.message or not getattr(update.message, 'new_chat_members', None):
+        return
+
+    chat_id = update.effective_chat.id
+    for member in update.message.new_chat_members:
+        await enforce_forever_ban(chat_id, member.id, context, "new chat member")
+
+async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Enforce permanent blacklist on join requests."""
+    if not getattr(update, 'chat_join_request', None):
+        return
+
+    request = update.chat_join_request
+    user_id = request.from_user.id
+    chat_id = request.chat.id
+    await enforce_forever_ban(chat_id, user_id, context, "join request")
 
 @admin_only
 async def nuke(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3228,6 +3392,9 @@ def setup_bot():
     app.add_handler(CommandHandler("nuke", nuke))
     app.add_handler(CommandHandler("iloveu", iloveu))
     app.add_handler(CommandHandler("unban", unban))
+    app.add_handler(CommandHandler("foreverban", foreverban))
+    app.add_handler(CommandHandler("foreverunban", foreverunban))
+    app.add_handler(CommandHandler("foreverbans", foreverbans))
     app.add_handler(CommandHandler("info", user_info))
     app.add_handler(CommandHandler("admins", admins))
     app.add_handler(CommandHandler("debug_warns", debug_warns))
@@ -3303,7 +3470,10 @@ def setup_bot():
     app.add_handler(CommandHandler("drip", drip))
     app.add_handler(CallbackQueryHandler(lasthope_callback))
 
-    
+    # Enforce permanent blacklist
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
+    app.add_handler(ChatJoinRequestHandler(handle_join_request))
+
     # Messages (must be last)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
