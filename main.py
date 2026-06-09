@@ -33,6 +33,9 @@ from config import *
 from logging_config import configure_logging
 from safe_math import CalculationError, evaluate_expression, format_decimal
 from single_instance import SingleInstanceLock
+from commands.group_management import COMMANDS as GROUP_MANAGEMENT_COMMANDS
+from services.group_management import security_service, store as group_store
+from healthcheck import start_background as start_health_server
 
 configure_logging(LOG_FILE, LOG_LEVEL, LOG_FORMAT)
 logger = logging.getLogger(__name__)
@@ -1041,8 +1044,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_id = str(update.effective_user.id)
+    user_id_int = update.effective_user.id
     chat_id = update.effective_chat.id
     text = update.message.text.lower()
+    group_store.record_message(chat_id, user_id_int)
+
+    findings = security_service.inspect_message(chat_id, user_id_int, update.message.text)
+    if findings and group_store.get_setting(chat_id, "guardian", False):
+        logger.warning(f"Guardian findings for {user_id_int}: {findings}")
+        if "link_spam" in findings or "flood" in findings or "repeated_messages" in findings:
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
+            if "flood" in findings:
+                try:
+                    perms = ChatPermissions(can_send_messages=False)
+                    await context.bot.restrict_chat_member(
+                        chat_id,
+                        user_id_int,
+                        perms,
+                        until_date=datetime.utcnow() + timedelta(minutes=10),
+                    )
+                    group_store.log_action(chat_id, None, "guardian_mute", user_id_int, ",".join(findings))
+                except Exception as e:
+                    logger.warning(f"Guardian mute failed for {user_id_int}: {e}")
+            return
 
     # Track recent non-command messages for spam cleanup
     RECENT_CHAT_MESSAGES[chat_id].append(update.message.message_id)
@@ -1606,6 +1633,16 @@ async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_
 
     chat_id = update.effective_chat.id
     for member in update.message.new_chat_members:
+        if group_store.is_permanently_banned(chat_id, member.id):
+            try:
+                await context.bot.ban_chat_member(chat_id, member.id)
+                group_store.log_action(chat_id, None, "auto_reban", member.id, "permanent ban database")
+            except Exception as e:
+                logger.error(f"Permanent DB auto re-ban failed for {member.id}: {e}")
+            continue
+        raid_alert = security_service.record_join(chat_id, member.id)
+        if raid_alert and group_store.get_setting(chat_id, "guardian", False):
+            logger.warning(f"Guardian raid alert in {chat_id}: {raid_alert}")
         await enforce_forever_ban(chat_id, member.id, context, "new chat member")
 
 async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1616,6 +1653,13 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     request = update.chat_join_request
     user_id = request.from_user.id
     chat_id = request.chat.id
+    if group_store.is_permanently_banned(chat_id, user_id):
+        try:
+            await context.bot.ban_chat_member(chat_id, user_id)
+            group_store.log_action(chat_id, None, "auto_reban_join_request", user_id, "permanent ban database")
+        except Exception as e:
+            logger.error(f"Permanent DB join-request re-ban failed for {user_id}: {e}")
+        return
     await enforce_forever_ban(chat_id, user_id, context, "join request")
 
 @admin_only
@@ -3474,6 +3518,10 @@ def setup_bot():
     app.add_handler(CommandHandler("sus", sus))
     app.add_handler(CommandHandler("aura", aura))
     app.add_handler(CommandHandler("drip", drip))
+
+    for command_name, handler in GROUP_MANAGEMENT_COMMANDS.items():
+        app.add_handler(CommandHandler(command_name, handler))
+
     app.add_handler(CallbackQueryHandler(lasthope_callback))
 
     # Enforce permanent blacklist
@@ -3503,6 +3551,10 @@ def run_bot_with_recovery():
         instance_lock = SingleInstanceLock(TELEGRAM_TOKEN)
         instance_lock.acquire()
         logger.info("Acquired local single-instance lock")
+
+    if ENABLE_HEALTH_SERVER:
+        start_health_server()
+        logger.info("Health endpoint started")
 
     try:
         while True:

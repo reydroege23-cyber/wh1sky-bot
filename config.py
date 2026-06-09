@@ -90,6 +90,7 @@ DATA_SAVE_BATCH_INTERVAL = int(os.getenv("DATA_SAVE_BATCH_INTERVAL", "5"))
 ENABLE_ASYNC_SAVES = os.getenv("ENABLE_ASYNC_SAVES", "true").lower() == "true"
 SINGLE_INSTANCE_LOCK = os.getenv("SINGLE_INSTANCE_LOCK", "true").lower() == "true"
 EXIT_ON_TELEGRAM_CONFLICT = os.getenv("EXIT_ON_TELEGRAM_CONFLICT", "true").lower() == "true"
+ENABLE_HEALTH_SERVER = os.getenv("ENABLE_HEALTH_SERVER", "true").lower() == "true"
 
 # =========================
 # DATA STORAGE
