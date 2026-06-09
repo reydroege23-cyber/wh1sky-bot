@@ -12,9 +12,10 @@ from config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, AI_MODEL, AI_TIMEOUT
 logger = logging.getLogger(__name__)
 
 # Configure OpenRouter client (OpenAI-compatible)
-ai_client = OpenAI(
-    base_url=OPENROUTER_BASE_URL,
-    api_key=OPENROUTER_API_KEY
+ai_client = (
+    OpenAI(base_url=OPENROUTER_BASE_URL, api_key=OPENROUTER_API_KEY)
+    if OPENROUTER_API_KEY
+    else None
 )
 
 async def ask_gemini(prompt: str) -> str:
@@ -27,6 +28,10 @@ async def ask_gemini(prompt: str) -> str:
     Returns:
         AI response text (truncated to Telegram limit)
     """
+    if ai_client is None:
+        logger.warning("AI request attempted without OPENROUTER_API_KEY")
+        return "⚠️ AI service is not configured."
+
     try:
         # Use OpenRouter API
         response = await asyncio.wait_for(

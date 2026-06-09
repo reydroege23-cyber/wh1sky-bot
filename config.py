@@ -1,127 +1,122 @@
-"""
-Configuration file for Whisky_bot
-Store all configuration in one place for easy management
+"""Configuration for Whisky_bot.
+
+Secrets must come from environment variables or a local .env file. Do not put
+real bot tokens or API keys in source control.
 """
 
 import os
-import re
+
 from dotenv import load_dotenv
 
-# Load environment variables
+
 load_dotenv()
+
+
+def _csv_ints(name: str, default: list[int]) -> list[int]:
+    value = os.getenv(name, "").strip()
+    if not value:
+        return default
+    return [int(item.strip()) for item in value.split(",") if item.strip()]
+
+
+def require_runtime_config() -> None:
+    """Validate settings required to start the bot."""
+    if not TELEGRAM_TOKEN:
+        raise RuntimeError("TELEGRAM_TOKEN is required. Set it in .env or the process environment.")
+
 
 # =========================
 # API CREDENTIALS
 # =========================
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN") or "8771300086:AAHpos-PeRziKVr3za4XbMq0_MibJUVOznA"
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or "sk-or-v1-your-key-here"
-
-# Validate credentials exist
-if not TELEGRAM_TOKEN:
-    print("⚠️ Warning: TELEGRAM_TOKEN not found in environment")
-if not OPENROUTER_API_KEY:
-    print("⚠️ Warning: OPENROUTER_API_KEY not found in environment")
-
-# Optional: separate bot token
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 
 # =========================
 # BOT SETTINGS
 # =========================
 
-# Admin user IDs
-ADMIN_IDS = [
-    8537521522,
-    8577797097,
-    8707676185,
-    8737737935,
-]
-
-# Maximum warnings before auto-ban
-MAX_WARNINGS = 3
-
-# Mute duration in minutes
-MUTE_DURATION = 10
+ADMIN_IDS = _csv_ints(
+    "ADMIN_IDS",
+    [
+        8537521522,
+        8577797097,
+        8707676185,
+        8737737935,
+    ],
+)
+MAX_WARNINGS = int(os.getenv("MAX_WARNINGS", "3"))
+MUTE_DURATION = int(os.getenv("MUTE_DURATION", "10"))
 
 # =========================
 # CONTENT FILTERING
 # =========================
 
 BAD_WORDS = [
-  "rape",
-
+    "rape",
 ]
 
 # =========================
 # SPAM PROTECTION
 # =========================
 
-SPAM_LIMIT = 5  # messages per time period
-SPAM_TIME = 10  # seconds
+SPAM_LIMIT = int(os.getenv("SPAM_LIMIT", "5"))
+SPAM_TIME = int(os.getenv("SPAM_TIME", "10"))
 
 # =========================
 # AI SETTINGS (OpenRouter)
 # =========================
 
-AI_MODEL = "meta-llama/llama-3.1-8b-instruct"  # OpenRouter model
-AI_TIMEOUT = 15  # seconds (optimized for speed)
-MAX_RESPONSE_LENGTH = 4096  # Telegram limit
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+AI_MODEL = os.getenv("AI_MODEL", "meta-llama/llama-3.1-8b-instruct")
+AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "15"))
+MAX_RESPONSE_LENGTH = int(os.getenv("MAX_RESPONSE_LENGTH", "4096"))
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
 # =========================
-# COOLDOWN SETTINGS (per user)
+# COOLDOWN SETTINGS
 # =========================
 
-ENABLE_RATE_LIMITING = True  # Enable/disable cooldown system
-AI_COOLDOWN = 3  # seconds between /ai commands (reduced for speed)
-SPEAK_COOLDOWN = 2  # seconds between speak mode replies (reduced for speed)
-COMMAND_COOLDOWN = 1  # seconds between other commands (reduced for speed)
+ENABLE_RATE_LIMITING = os.getenv("ENABLE_RATE_LIMITING", "true").lower() == "true"
+AI_COOLDOWN = int(os.getenv("AI_COOLDOWN", "3"))
+SPEAK_COOLDOWN = int(os.getenv("SPEAK_COOLDOWN", "2"))
+COMMAND_COOLDOWN = int(os.getenv("COMMAND_COOLDOWN", "1"))
 
 # =========================
 # PERFORMANCE SETTINGS
 # =========================
 
-DATA_SAVE_BATCH_INTERVAL = 5  # seconds - batch writes instead of per-message
-ENABLE_ASYNC_SAVES = True  # Use async I/O for data persistence
+DATA_SAVE_BATCH_INTERVAL = int(os.getenv("DATA_SAVE_BATCH_INTERVAL", "5"))
+ENABLE_ASYNC_SAVES = os.getenv("ENABLE_ASYNC_SAVES", "true").lower() == "true"
 
 # =========================
 # DATA STORAGE
 # =========================
 
-DATA_FILE = "bot_data.json"
-LOG_FILE = "bot.log"
+DATA_FILE = os.getenv("DATA_FILE", "bot_data.json")
+LOG_FILE = os.getenv("LOG_FILE", "bot.log")
 
 # =========================
 # LOGGING
 # =========================
 
-LOG_LEVEL = "INFO"
-LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_FORMAT = os.getenv("LOG_FORMAT", "%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
 # =========================
 # ECONOMY SYSTEM (VIRTUAL ONLY)
 # =========================
 
-# ⚠️ IMPORTANT: This system uses VIRTUAL CURRENCY ONLY - NO REAL MONEY VALUE
-
-# Owner ID (only this user can use admin economy commands)
-OWNER_ID = 8577797097
-
-# Starting balance for new users
-STARTING_BALANCE = 100
-
-# Economy cooldowns (seconds)
-DAILY_COOLDOWN = 86400  # 24 hours
-
-# Daily reward amount
-DAILY_REWARD = 50
+OWNER_ID = int(os.getenv("OWNER_ID", "8577797097"))
+STARTING_BALANCE = int(os.getenv("STARTING_BALANCE", "100"))
+DAILY_COOLDOWN = int(os.getenv("DAILY_COOLDOWN", "86400"))
+DAILY_REWARD = int(os.getenv("DAILY_REWARD", "50"))
 
 # =========================
 # FEATURE FLAGS
 # =========================
 
-ENABLE_STATS = True  # Track user statistics
-ENABLE_LOGGING = True  # Log all activity
-ENABLE_AUTO_MODERATION = True  # Auto-delete NSFW content
-ENABLE_ECONOMY = True  # Enable virtual economy system
+ENABLE_STATS = os.getenv("ENABLE_STATS", "true").lower() == "true"
+ENABLE_LOGGING = os.getenv("ENABLE_LOGGING", "true").lower() == "true"
+ENABLE_AUTO_MODERATION = os.getenv("ENABLE_AUTO_MODERATION", "true").lower() == "true"
+ENABLE_ECONOMY = os.getenv("ENABLE_ECONOMY", "true").lower() == "true"

@@ -26,14 +26,14 @@ from pathlib import Path
 from collections import defaultdict
 from typing import Optional, Any, cast
 import random
+import os
 
 from functools import wraps
 from config import *
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-)
+from logging_config import configure_logging
+from safe_math import CalculationError, evaluate_expression, format_decimal
+
+configure_logging(LOG_FILE, LOG_LEVEL, LOG_FORMAT)
 logger = logging.getLogger(__name__)
 # AI client initialization (use utils.ai_client if available)
 try:
@@ -68,13 +68,18 @@ def load_data():
 
 
 def save_data(data: dict):
-    """Save bot data to disk (synchronous)."""
+    """Save bot data to disk atomically (synchronous)."""
     try:
-        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        data_path = Path(DATA_FILE)
+        temp_path = data_path.with_suffix(data_path.suffix + ".tmp")
+        with open(temp_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        logger.debug(f"💾 Saved bot data ({len(data.get('stats', {}))} users)")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, data_path)
+        logger.debug(f"Saved bot data ({len(data.get('stats', {}))} users)")
     except Exception as e:
-        logger.error(f"❌ Error saving data: {e}")
+        logger.error(f"Error saving data: {e}")
 
 
 # Async batching/queue for saves
@@ -1781,23 +1786,22 @@ async def calc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Simple calculator."""
     try:
         if not context.args:
-            await update.message.reply_text("❌ Usage: /calc 2+2 or /calc 10*5")
+            await update.message.reply_text("\u274c Usage: /calc 2+2 or /calc 10*5")
             return
         
         expression = " ".join(context.args)
-        # Only allow safe math operations
-        if any(char in expression for char in ['_', '(', ')', '[', ']', '{', '}', '|', '&']):
-            await update.message.reply_text("❌ Invalid characters in expression")
-            return
-        
-        result = eval(expression)
-        await update.message.reply_text(f"🧮 **{expression} = {result}**", parse_mode="Markdown")
-        logger.info(f"🧮 {update.effective_user.id} calculated: {expression} = {result}")
+        result = evaluate_expression(expression)
+        result_text = format_decimal(result)
+        await update.message.reply_text(f"\U0001f9ee **{expression} = {result_text}**", parse_mode="Markdown")
+        logger.info(f"Calc from {update.effective_user.id}: {expression} = {result_text}")
     except ZeroDivisionError:
-        await update.message.reply_text("❌ Cannot divide by zero!")
+        await update.message.reply_text("\u274c Cannot divide by zero!")
+    except CalculationError as e:
+        logger.info(f"Rejected calculation from {update.effective_user.id}: {e}")
+        await update.message.reply_text("\u274c Invalid calculation")
     except Exception as e:
         logger.error(f"Calc error: {e}")
-        await update.message.reply_text("❌ Invalid calculation")
+        await update.message.reply_text("\u274c Invalid calculation")
 
 @user_tracking
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3365,6 +3369,7 @@ async def periodic_save_task(app):
 
 def setup_bot():
     """Initialize and setup bot."""
+    require_runtime_config()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
     # Error handler

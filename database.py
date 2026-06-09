@@ -14,6 +14,16 @@ import os
 
 logger = logging.getLogger(__name__)
 
+PLAYER_STAT_COLUMNS = {
+    "coins_sent",
+    "coins_received",
+    "games_played",
+    "total_wins",
+    "win_streak",
+    "max_win_streak",
+    "biggest_win",
+}
+
 # ========================
 # USER VALIDATION FUNCTIONS
 # ========================
@@ -662,6 +672,11 @@ class EconomyDatabase:
             
             if not kwargs:
                 return True
+
+            invalid_stats = [key for key in kwargs if key not in PLAYER_STAT_COLUMNS]
+            if invalid_stats:
+                logger.warning(f"Rejected invalid player stat columns: {invalid_stats}")
+                return False
             
             # Build update query
             set_clause = ", ".join([f"{key} = {key} + ?" if key.startswith('total_') or key.startswith('coins_') else f"{key} = ?" for key in kwargs.keys()])
@@ -684,6 +699,10 @@ class EconomyDatabase:
     def increment_stat(self, user_id: int, stat_name: str, amount: int = 1) -> bool:
         """Increment a stat by amount (for counters)."""
         try:
+            if stat_name not in PLAYER_STAT_COLUMNS:
+                logger.warning(f"Rejected invalid player stat column: {stat_name}")
+                return False
+
             self.register_user(user_id)
             self.get_player_stats(user_id)  # Ensure exists
             
@@ -703,6 +722,10 @@ class EconomyDatabase:
     def set_stat(self, user_id: int, stat_name: str, value: int) -> bool:
         """Set a stat to exact value."""
         try:
+            if stat_name not in PLAYER_STAT_COLUMNS:
+                logger.warning(f"Rejected invalid player stat column: {stat_name}")
+                return False
+
             self.register_user(user_id)
             self.get_player_stats(user_id)  # Ensure exists
             
