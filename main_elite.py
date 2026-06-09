@@ -1,5 +1,5 @@
 """
-🥃 WHISKY_BOT - ELITE VERSION
+🥃 Marine - ELITE VERSION
 Advanced Telegram Bot with AI Integration & Premium Features
 """
 
@@ -145,7 +145,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced start command."""
     user = update.effective_user
     welcome = f"""
-👋 **Welcome to Whisky_bot, {user.first_name}!**
+👋 **Welcome to Marine, {user.first_name}!**
 
 I'm an AI-powered Telegram bot with advanced moderation features.
 
@@ -168,7 +168,7 @@ Use `/help` for complete command list!
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced help command."""
     help_text = f"""
-**📚 WHISKY_BOT - COMMAND REFERENCE**
+**📚 Marine - COMMAND REFERENCE**
 
 **👥 USER COMMANDS:**
 • `/start` - Welcome message
@@ -652,7 +652,7 @@ def setup_bot():
 
 if __name__ == "__main__":
     logger.info("=" * 60)
-    logger.info("🥃 WHISKY_BOT - ELITE VERSION STARTING")
+    logger.info("🥃 Marine - ELITE VERSION STARTING")
     logger.info(f"👮 Admin IDs: {ADMIN_IDS}")
     logger.info(f"🤖 AI Status: {'✅ ONLINE' if AI_AVAILABLE else '⚠️ OFFLINE'}")
     logger.info(f"📊 Tracking {len(bot_data['stats'])} users")

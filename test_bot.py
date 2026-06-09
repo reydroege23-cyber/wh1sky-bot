@@ -1,5 +1,5 @@
 """
-🧪 WHISKY_BOT TEST SUITE
+🧪 Marine TEST SUITE
 Comprehensive testing of all bot functions
 """
 
@@ -219,7 +219,7 @@ def test_commands():
 def run_all_tests():
     """Run all tests."""
     print("\n" + "=" * 60)
-    print("🧪 WHISKY_BOT TEST SUITE")
+    print("🧪 Marine TEST SUITE")
     print("=" * 60)
     
     tests = [

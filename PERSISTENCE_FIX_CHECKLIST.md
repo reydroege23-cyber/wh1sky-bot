@@ -79,7 +79,7 @@ async def dbstatus(update, context):
 **Database is stored at:**
 ```
 ./data/economy.db
-(Absolute Path: C:\Users\O_OLOVE34\Desktop\Wh1sky_bot\data\economy.db)
+(Absolute Path: C:\Users\O_OLOVE34\Desktop\Marine\data\economy.db)
 ```
 
 **This location is:**

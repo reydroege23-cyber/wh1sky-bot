@@ -2,7 +2,7 @@
 
 ## 🚀 Upgrade Summary
 
-Your Whisky Bot economy system has been **upgraded to production-ready persistence**. All user balances, wins, losses, and daily rewards now survive:
+Your Marine economy system has been **upgraded to production-ready persistence**. All user balances, wins, losses, and daily rewards now survive:
 
 ✅ Bot restarts
 ✅ Code updates & redeployments

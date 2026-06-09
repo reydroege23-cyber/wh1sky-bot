@@ -1,5 +1,5 @@
 """
-Database module for Whisky_bot
+Database module for Marine
 Handles all data persistence operations - BOTH File-based JSON and SQLite Economy
 """
 

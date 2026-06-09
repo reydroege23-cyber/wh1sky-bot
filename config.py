@@ -1,4 +1,4 @@
-"""Configuration for Whisky_bot.
+"""Configuration for Marine.
 
 Secrets must come from environment variables or a local .env file. Do not put
 real bot tokens or API keys in source control.

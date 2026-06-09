@@ -1,4 +1,4 @@
-# 🔒 WHISKY_BOT: PERSISTENT ECONOMY - FINAL FIX ✅
+# 🔒 Marine: PERSISTENT ECONOMY - FINAL FIX ✅
 
 ## THE PROBLEM YOU HAD
 Your `/top` leaderboard was **resetting after bot updates** because the economy database was using a **relative path** that could point to different locations after redeployment.
@@ -41,7 +41,7 @@ Bot now shows on startup:
 ✅ ECONOMY SYSTEM INITIALIZED
 ========================================
 💾 Database location (ABSOLUTE PATH):
-   C:\Users\O_OLOVE34\Desktop\Wh1sky_bot\data\economy.db
+   C:\Users\O_OLOVE34\Desktop\Marine\data\economy.db
 ✨ This database SURVIVES bot updates!
 👥 Loaded 5 users from database
 ========================================

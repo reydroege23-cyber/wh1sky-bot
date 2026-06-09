@@ -279,7 +279,7 @@ Number guessing game (1-100)
 
 ## 🎉 SUMMARY
 
-**WHISKY_BOT v2.5 is now:**
+**Marine v2.5 is now:**
 - ✅ More fun (10 new commands)
 - ✅ More stable (bug fixed)
 - ✅ More feature-rich (29 total commands)

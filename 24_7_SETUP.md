@@ -1,4 +1,4 @@
-# 🥃 WHISKY_BOT - 24/7 OPERATION SETUP
+# 🥃 Marine - 24/7 OPERATION SETUP
 
 ## ⚡ 24/7 CONTINUOUS OPERATION
 
@@ -39,16 +39,16 @@ Run: `run_bot.bat`
 
 2. **Create Service**:
 ```bash
-nssm install WhiskyBot "C:\path\to\python.exe" "C:\path\to\main.py"
-nssm set WhiskyBot AppDirectory "C:\path\to\Wh1sky_bot"
-nssm set WhiskyBot AppStdout "C:\path\to\Wh1sky_bot\bot.log"
-nssm set WhiskyBot AppStderr "C:\path\to\Wh1sky_bot\bot.log"
+nssm install Marine "C:\path\to\python.exe" "C:\path\to\main.py"
+nssm set Marine AppDirectory "C:\path\to\Marine"
+nssm set Marine AppStdout "C:\path\to\Marine\bot.log"
+nssm set Marine AppStderr "C:\path\to\Marine\bot.log"
 ```
 
 3. **Start Service**:
 ```bash
-nssm start WhiskyBot
-nssm status WhiskyBot
+nssm start Marine
+nssm status Marine
 ```
 
 ### Option 3: Task Scheduler (Easy)
@@ -64,7 +64,7 @@ goto loop
 
 2. Open Task Scheduler:
    - New Task
-   - Name: "Whisky Bot"
+   - Name: "Marine"
    - Trigger: "At startup"
    - Action: Run `run_forever.bat`
    - Check: "Run whether user is logged in or not"
@@ -75,20 +75,20 @@ goto loop
 
 ### Option 1: Systemd Service (Recommended)
 
-Create `/etc/systemd/system/whisky-bot.service`:
+Create `/etc/systemd/system/marine-bot.service`:
 
 ```ini
 [Unit]
-Description=Whisky Bot 24/7 Service
+Description=Marine 24/7 Service
 After=network.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/Wh1sky_bot
-EnvironmentFile=/home/pi/Wh1sky_bot/.env
-ExecStart=/home/pi/Wh1sky_bot/venv/bin/python main.py
+WorkingDirectory=/home/pi/Marine
+EnvironmentFile=/home/pi/Marine/.env
+ExecStart=/home/pi/Marine/venv/bin/python main.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -101,47 +101,47 @@ WantedBy=multi-user.target
 **Enable and Start**:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable whisky-bot
-sudo systemctl start whisky-bot
-sudo systemctl status whisky-bot
+sudo systemctl enable marine-bot
+sudo systemctl start marine-bot
+sudo systemctl status marine-bot
 ```
 
 **Monitor**:
 ```bash
 # View logs
-sudo journalctl -u whisky-bot -f
+sudo journalctl -u marine-bot -f
 
 # Check status
-sudo systemctl status whisky-bot
+sudo systemctl status marine-bot
 
 # Restart
-sudo systemctl restart whisky-bot
+sudo systemctl restart marine-bot
 
 # Stop
-sudo systemctl stop whisky-bot
+sudo systemctl stop marine-bot
 ```
 
 ### Option 2: Supervisor (Alternative)
 
-Create `/etc/supervisor/conf.d/whisky-bot.conf`:
+Create `/etc/supervisor/conf.d/marine-bot.conf`:
 
 ```ini
-[program:whisky-bot]
-command=/home/pi/Wh1sky_bot/venv/bin/python /home/pi/Wh1sky_bot/main.py
-directory=/home/pi/Wh1sky_bot
+[program:marine-bot]
+command=/home/pi/Marine/venv/bin/python /home/pi/Marine/main.py
+directory=/home/pi/Marine
 user=pi
 autostart=true
 autorestart=true
 redirect_stderr=true
-stdout_logfile=/home/pi/Wh1sky_bot/bot.log
-environment=PATH="/home/pi/Wh1sky_bot/venv/bin"
+stdout_logfile=/home/pi/Marine/bot.log
+environment=PATH="/home/pi/Marine/venv/bin"
 ```
 
 **Enable and Start**:
 ```bash
 sudo supervisorctl reread
 sudo supervisorctl update
-sudo supervisorctl start whisky-bot
+sudo supervisorctl start marine-bot
 sudo supervisorctl status
 ```
 
@@ -149,14 +149,14 @@ sudo supervisorctl status
 
 ```bash
 # Using screen
-screen -S whisky-bot -d -m python main.py
+screen -S marine-bot -d -m python main.py
 
 # Using tmux
-tmux new-session -d -s whisky-bot "python main.py"
+tmux new-session -d -s marine-bot "python main.py"
 
 # Attach to check
-screen -r whisky-bot
-tmux attach-session -t whisky-bot
+screen -r marine-bot
+tmux attach-session -t marine-bot
 ```
 
 ### Option 4: Cron Job (Restart Daily)
@@ -167,10 +167,10 @@ crontab -e
 
 # Add these lines:
 # Restart bot daily at 2 AM
-0 2 * * * /home/pi/Wh1sky_bot/restart_bot.sh
+0 2 * * * /home/pi/Marine/restart_bot.sh
 
 # Check status every hour
-0 * * * * /home/pi/Wh1sky_bot/check_bot.sh
+0 * * * * /home/pi/Marine/check_bot.sh
 ```
 
 Create `restart_bot.sh`:
@@ -178,7 +178,7 @@ Create `restart_bot.sh`:
 #!/bin/bash
 pkill -f "python main.py"
 sleep 2
-cd /home/pi/Wh1sky_bot
+cd /home/pi/Marine
 python main.py &
 ```
 
@@ -203,27 +203,27 @@ CMD ["python", "main.py"]
 **Build and Run**:
 ```bash
 # Build
-docker build -t whisky-bot .
+docker build -t marine-bot .
 
 # Run (24/7)
 docker run -d \
-  --name whisky-bot \
+  --name marine-bot \
   --env-file .env \
   --restart unless-stopped \
   --log-driver json-file \
   --log-opt max-size=10m \
   --log-opt max-file=3 \
-  whisky-bot
+  marine-bot
 
 # View logs
-docker logs -f whisky-bot
+docker logs -f marine-bot
 
 # Status
-docker ps | grep whisky-bot
+docker ps | grep marine-bot
 
 # Stop/Start
-docker stop whisky-bot
-docker start whisky-bot
+docker stop marine-bot
+docker start marine-bot
 ```
 
 Create `docker-compose.yml`:
@@ -231,7 +231,7 @@ Create `docker-compose.yml`:
 version: '3.8'
 
 services:
-  whisky-bot:
+  marine-bot:
     build: .
     restart: unless-stopped
     env_file: .env
@@ -268,7 +268,7 @@ if pgrep -f "python main.py" > /dev/null; then
 else
     echo "❌ Bot is NOT running"
     echo "🔄 Starting bot..."
-    cd /home/pi/Wh1sky_bot
+    cd /home/pi/Marine
     python main.py &
 fi
 
@@ -294,7 +294,7 @@ Create `auto_restart.sh`:
 while true; do
     if ! pgrep -f "python main.py" > /dev/null; then
         echo "$(date) - Bot crashed, restarting..." >> bot_restart.log
-        cd /home/pi/Wh1sky_bot
+        cd /home/pi/Marine
         python main.py &
     fi
     sleep 60  # Check every minute
@@ -336,7 +336,7 @@ ls -lah bot_data.json*
 
 ```bash
 # Full backup
-tar -czf whisky-bot-backup-$(date +%Y%m%d).tar.gz \
+tar -czf marine-bot-backup-$(date +%Y%m%d).tar.gz \
     bot_data.json bot.log config.py
 
 # Update dependencies
@@ -461,9 +461,9 @@ goto loop
 
 ### Linux (Systemd)
 ```bash
-sudo cp whisky-bot.service /etc/systemd/system/
-sudo systemctl enable whisky-bot
-sudo systemctl start whisky-bot
+sudo cp marine-bot.service /etc/systemd/system/
+sudo systemctl enable marine-bot
+sudo systemctl start marine-bot
 ```
 
 ### Docker (Modern)
@@ -474,7 +474,7 @@ docker-compose up -d
 ### Raspberry Pi (Easy)
 ```bash
 # Add to crontab
-@reboot /home/pi/Wh1sky_bot/start_bot.sh
+@reboot /home/pi/Marine/start_bot.sh
 ```
 
 ---
@@ -490,7 +490,7 @@ If bot keeps crashing:
 
 If you need to stop:
 - **Windows**: Close terminal or `Ctrl+C`
-- **Linux**: `sudo systemctl stop whisky-bot`
+- **Linux**: `sudo systemctl stop marine-bot`
 - **Docker**: `docker-compose down`
 
 ---

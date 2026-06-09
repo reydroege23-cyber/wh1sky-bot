@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-🥃 WHISKY_BOT ELITE - COMPLETE VALIDATION
+🥃 Marine ELITE - COMPLETE VALIDATION
 Comprehensive system verification before deployment
 """
 
@@ -243,7 +243,7 @@ class BotValidator:
     def run_all_validations(self):
         """Run all validation tests."""
         print("\n" + "=" * 50)
-        print("🥃 WHISKY_BOT ELITE - VALIDATION")
+        print("🥃 Marine ELITE - VALIDATION")
         print("=" * 50)
         print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         

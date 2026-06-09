@@ -29,9 +29,14 @@ def test_required_commands_are_exposed():
         "guardian",
         "report",
         "rules",
+        "setrules",
+        "setwelcome",
+        "setgoodbye",
         "settings",
+        "security",
+        "testsecurity",
         "stats",
         "ping",
-        "whisky",
+        "marine",
     }:
         assert required in names

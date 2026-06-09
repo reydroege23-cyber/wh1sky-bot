@@ -1,7 +1,7 @@
 # 🎨 AI Image Generation Setup Guide
 
 ## Overview
-This bot now supports AI image generation using the `!whisky` command!
+This bot now supports AI image generation using the `!marine` command!
 
 ## Installation
 
@@ -32,16 +32,16 @@ pip install requests
 
 ### Command Format
 ```
-!whisky <prompt>
+!marine <prompt>
 ```
 
 ### Examples
 ```
-!whisky cyberpunk wolf
-!whisky anime girl with red eyes
-!whisky futuristic city at night
-!whisky painting of a dragon in fantasy style
-!whisky realistic portrait of a person
+!marine cyberpunk wolf
+!marine anime girl with red eyes
+!marine futuristic city at night
+!marine painting of a dragon in fantasy style
+!marine realistic portrait of a person
 ```
 
 ### Features
@@ -127,7 +127,7 @@ STYLES = {
 }
 ```
 
-Use: `!whisky anime:cyberpunk wolf`
+Use: `!marine anime:cyberpunk wolf`
 
 ### Admin-Only Mode
 ```python

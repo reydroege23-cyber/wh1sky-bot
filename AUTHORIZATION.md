@@ -88,7 +88,7 @@ This applies to:
 - `/stats` - View statistics
 - `/roll`, `/coin`, `/dice` - Fun commands
 - `/calc`, `/echo` - Utility commands
-- `/ai` - Ask Whisky AI
+- `/ai` - Ask Marine AI
 - All other user commands
 
 ### 🔑 Protected Commands List
@@ -103,7 +103,7 @@ This applies to:
 - /stats, /userid, /profile, /invite, /members, /uptime
 
 **Special Commands:**
-- /hajhanm, /hoba, /Serok, /Amanj, /Arya, /kurdishezdi, /Whisky
+- /hajhanm, /hoba, /Serok, /Amanj, /Arya, /kurdishezdi, /Marine
 
 **Admin Commands:**
 - Protected by @admin_only decorator (authorization not needed for admins)

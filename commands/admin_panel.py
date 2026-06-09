@@ -1,7 +1,8 @@
-"""Inline Telegram admin control panel."""
+"""Inline Telegram Marine admin control panel."""
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 from datetime import datetime
@@ -155,7 +156,7 @@ async def panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     is_owner = _actor_id(update) == OWNER_ID
     await update.message.reply_text(
-        "Admin control panel\nUse buttons below to manage this group.",
+        "Marine admin control panel\nUse buttons below to manage this group.",
         reply_markup=_main_keyboard(is_owner),
     )
 
@@ -267,6 +268,85 @@ async def logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text or "No logs yet.")
 
 
+async def resetsettings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    chat_id = _chat_id(update)
+    store.reset_settings(chat_id)
+    store.log_action(chat_id, _actor_id(update), "reset_settings")
+    await update.message.reply_text("Settings reset for this chat only.")
+
+
+async def exportsettings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    chat_id = _chat_id(update)
+    payload = {
+        "chat_id": chat_id,
+        "exported_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "settings": store.export_settings(chat_id),
+    }
+    data = json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+    store.log_action(chat_id, _actor_id(update), "export_settings")
+    await update.message.reply_document(
+        io.BytesIO(data),
+        filename=f"settings-{chat_id}.json",
+        caption="Settings export for this chat.",
+    )
+
+
+async def importsettings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    chat_id = _chat_id(update)
+    raw = " ".join(context.args).strip()
+    if update.message.reply_to_message and update.message.reply_to_message.document:
+        document = update.message.reply_to_message.document
+        telegram_file = await document.get_file()
+        raw = (await telegram_file.download_as_bytearray()).decode("utf-8")
+    if not raw:
+        await update.message.reply_text("Usage: /importsettings <json> or reply to a JSON settings export.")
+        return
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        await update.message.reply_text(f"Invalid JSON: {exc}")
+        return
+    settings = payload.get("settings", payload) if isinstance(payload, dict) else {}
+    if not isinstance(settings, dict):
+        await update.message.reply_text("Invalid settings export.")
+        return
+    store.import_settings(chat_id, settings)
+    store.log_action(chat_id, _actor_id(update), "import_settings")
+    await update.message.reply_text("Settings imported for this chat only.")
+
+
+async def copysettings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_owner(update):
+        return
+    if len(context.args) < 2 or not all(arg.lstrip("-").isdigit() for arg in context.args[:2]):
+        await update.message.reply_text("Usage: /copysettings <source_chat_id> <target_chat_id>")
+        return
+    source_chat_id = int(context.args[0])
+    target_chat_id = int(context.args[1])
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "Confirm Copy",
+                    callback_data=f"panel:copysettings:{source_chat_id}:{target_chat_id}",
+                )
+            ],
+            [InlineKeyboardButton("Cancel", callback_data="panel:home")],
+        ]
+    )
+    await update.message.reply_text(
+        f"Copy settings from {source_chat_id} to {target_chat_id}?\n"
+        "This overwrites only the target chat settings.",
+        reply_markup=keyboard,
+    )
+
+
 async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query:
@@ -281,7 +361,7 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = parts[1] if len(parts) > 1 else "home"
 
     if action == "home":
-        await query.edit_message_text("Admin control panel", reply_markup=_main_keyboard(actor_id == OWNER_ID))
+        await query.edit_message_text("Marine admin control panel", reply_markup=_main_keyboard(actor_id == OWNER_ID))
     elif action == "settings":
         await query.edit_message_text(_settings_text(chat_id), reply_markup=_settings_keyboard(chat_id))
     elif action == "protection":
@@ -371,6 +451,17 @@ async def panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await _require_owner(update):
             return
         await query.edit_message_text("Use /logs for recent moderation logs. Runtime errors are in bot.log.", reply_markup=_back_keyboard())
+    elif action == "copysettings" and len(parts) == 4:
+        if not await _require_owner(update):
+            return
+        source_chat_id = int(parts[2])
+        target_chat_id = int(parts[3])
+        store.copy_settings(source_chat_id, target_chat_id)
+        store.log_action(target_chat_id, actor_id, "copy_settings", reason=f"from {source_chat_id}")
+        await query.edit_message_text(
+            f"Copied settings from {source_chat_id} to {target_chat_id}.",
+            reply_markup=_back_keyboard(),
+        )
     else:
         await query.edit_message_text("Unknown panel action.", reply_markup=_back_keyboard())
 
@@ -385,6 +476,10 @@ COMMANDS: dict[str, Any] = {
     "cmds": cmds,
     "reload": reload_settings,
     "logs": logs,
+    "copysettings": copysettings,
+    "resetsettings": resetsettings,
+    "exportsettings": exportsettings,
+    "importsettings": importsettings,
 }
 
 

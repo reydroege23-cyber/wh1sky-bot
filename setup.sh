@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Setup script for Whisky_bot on Linux/Mac
+# Setup script for Marine on Linux/Mac
 
 echo ""
 echo "========================================"
-echo " Whisky_bot Setup"
+echo " Marine Setup"
 echo "========================================"
 echo ""
 

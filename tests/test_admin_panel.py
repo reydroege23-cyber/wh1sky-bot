@@ -3,7 +3,21 @@ from services.group_management import GroupStore
 
 
 def test_panel_commands_are_registered():
-    for command in {"panel", "settings", "setrules", "setwelcome", "setgoodbye", "toggle", "cmds", "reload", "logs"}:
+    for command in {
+        "panel",
+        "settings",
+        "setrules",
+        "setwelcome",
+        "setgoodbye",
+        "toggle",
+        "cmds",
+        "reload",
+        "logs",
+        "copysettings",
+        "resetsettings",
+        "exportsettings",
+        "importsettings",
+    }:
         assert command in COMMANDS
 
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-🥃 WHISKY_BOT - QUICK VALIDATION SCRIPT
+🥃 Marine - QUICK VALIDATION SCRIPT
 Tests all core functionality without running the full bot
 """
 
@@ -182,7 +182,7 @@ def test_logging():
 def main():
     """Run all tests."""
     print("=" * 60)
-    print("[WHISKY_BOT] - QUICK VALIDATION")
+    print("[Marine] - QUICK VALIDATION")
     print("=" * 60)
     
     results = []

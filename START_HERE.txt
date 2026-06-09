@@ -1,4 +1,4 @@
-🥃 WHISKY_BOT ELITE - READY TO DEPLOY! ✅
+🥃 Marine ELITE - READY TO DEPLOY! ✅
 
 ═══════════════════════════════════════════════════════════
                     DELIVERY CONFIRMED
@@ -16,7 +16,7 @@
 ✨ PREMIUM TELEGRAM BOT WITH:
 
 🤖  Advanced AI Integration
-    • Whisky AI (OpenRouter)
+    • Marine AI (OpenRouter)
     • Real-time responses
     • Error recovery
 
@@ -69,7 +69,7 @@ Create .env file:
 
 Get tokens from:
   • Telegram: @BotFather
-  • Whisky AI: openrouter.ai/keys
+  • Marine AI: openrouter.ai/keys
 
 STEP 3: Validate Setup
 ───────────────────────
@@ -95,7 +95,7 @@ $ python main.py
 
 Expected output:
   ============================================================
-  🥃 WHISKY_BOT - ELITE VERSION STARTING
+  🥃 Marine - ELITE VERSION STARTING
   👮 Admin IDs: [123, 456]
   🤖 AI Status: ✅ ONLINE
   📊 Tracking X users
@@ -233,7 +233,7 @@ View Data:
                     FILE STRUCTURE
 ───────────────────────────────────────────────────────────
 
-Wh1sky_bot/
+Marine/
 ├── main.py              # Elite bot (537 lines, prod-ready)
 ├── config.py            # Configuration
 ├── requirements.txt     # Python packages
@@ -396,11 +396,11 @@ Background (Linux/Mac):
 
 Service (Linux):
   [Create systemd service file - see DEPLOYMENT.md]
-  $ systemctl start whisky-bot
+  $ systemctl start marine-bot
 
 Docker:
-  $ docker build -t whisky-bot .
-  $ docker run -d --env-file .env whisky-bot
+  $ docker build -t marine-bot .
+  $ docker run -d --env-file .env marine-bot
 
 ───────────────────────────────────────────────────────────
                     FINAL CHECKLIST
@@ -424,7 +424,7 @@ AFTER STARTING:
 
 ───────────────────────────────────────────────────────────
 
-🎉 YOUR WHISKY_BOT ELITE IS READY!
+🎉 YOUR Marine ELITE IS READY!
 
 ═══════════════════════════════════════════════════════════
 

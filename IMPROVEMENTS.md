@@ -1,4 +1,4 @@
-# 🚀 Whisky_bot - Professional Upgrade Summary
+# 🚀 Marine - Professional Upgrade Summary
 
 ## 📦 What's New
 
@@ -97,7 +97,7 @@
 ## 📊 Project Structure
 
 ```
-Wh1sky_bot/
+Marine/
 ├── main.py              # Main bot application
 ├── config.py            # Configuration management
 ├── database.py          # Database operations

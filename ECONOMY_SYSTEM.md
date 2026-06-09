@@ -1,4 +1,4 @@
-# 💰 WHISKY BOT - VIRTUAL ECONOMY SYSTEM
+# 💰 Marine - VIRTUAL ECONOMY SYSTEM
 
 ## 🎮 Overview
 

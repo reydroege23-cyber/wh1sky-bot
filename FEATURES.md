@@ -1,9 +1,9 @@
-# 🥃 WHISKY_BOT ELITE - FEATURES & CAPABILITIES
+# 🥃 Marine ELITE - FEATURES & CAPABILITIES
 
 ## 📊 OVERVIEW
 
-**Whisky_bot Elite** is a production-grade Telegram bot with:
-- 🤖 AI Integration (Whisky AI powered by OpenRouter)
+**Marine Elite** is a production-grade Telegram bot with:
+- 🤖 AI Integration (Marine AI powered by OpenRouter)
 - 👮 Advanced Moderation
 - 📊 User Statistics & Tracking
 - 💾 Persistent Data Storage
@@ -17,7 +17,7 @@
 ## 👥 USER FEATURES
 
 ### 1. AI Chat `/ai <question>`
-- Ask Whisky AI anything
+- Ask Marine AI anything
 - Get instant responses
 - Timeout protection
 - Error handling
@@ -188,7 +188,7 @@ porn, sex, xxx, nude, 18+
 
 ## 🤖 AI INTEGRATION
 
-### Whisky AI (OpenRouter)
+### Marine AI (OpenRouter)
 
 **Fast, Reliable LLM**
 - Fast responses
@@ -383,7 +383,7 @@ python main.py
 - Check admin permissions
 
 ### AI Issues
-- Verify Whisky AI key
+- Verify Marine AI key
 - Check API quota
 - Review timeout settings
 - Check internet connection
@@ -411,4 +411,4 @@ python main.py
 
 ---
 
-**🥃 WHISKY_BOT ELITE - The Best Telegram Bot**
+**🥃 Marine ELITE - The Best Telegram Bot**

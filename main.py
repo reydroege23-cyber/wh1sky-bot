@@ -1,5 +1,5 @@
 """
-🥃 WHISKY_BOT - ELITE VERSION
+🥃 Marine - ELITE VERSION
 Advanced Telegram Bot with AI Integration & Premium Features
 """
 
@@ -440,7 +440,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced start command."""
     user = update.effective_user
     welcome = f"""
-👋 **Welcome to Whisky_bot, {user.first_name}!**
+👋 **Welcome to Marine, {user.first_name}!**
 
 I'm an AI-powered Telegram bot with advanced moderation features.
 
@@ -473,12 +473,12 @@ Use `/help` for complete command list!
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced help command."""
     help_text = f"""
-**📚 WHISKY_BOT - COMMAND REFERENCE**
+**📚 Marine - COMMAND REFERENCE**
 
 **👥 USER COMMANDS (26):**
 • `/start` - Welcome message
 • `/help` - This menu
-• `/ai <question>` - Ask Whisky AI
+• `/ai <question>` - Ask Marine AI
 • `/stats` - Your statistics
 • `/ping` - Check bot status
 
@@ -532,7 +532,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/unban` - Restore access
 • `/info` - User information
 • `/admins` - List admins
-• `/speak` - Enable Whisky AI speak mode
+• `/speak` - Enable Marine AI speak mode
 • `/stop_speak` - Disable speak mode
 • `/unSpeak` - Disable speak mode (alias)
 
@@ -598,17 +598,17 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if AI_AVAILABLE:
             status_msg = "🟢 **BOT STATUS: ONLINE**\n\n"
             status_msg += "✅ Telegram: Connected\n"
-            status_msg += "✅ Whisky AI: Ready\n"
+            status_msg += "✅ Marine AI: Ready\n"
             status_msg += f"⚡ Response Time: {response_time_ms:.0f}ms"
         else:
             status_msg = "🟡 **BOT STATUS: DEGRADED**\n\n"
             status_msg += "✅ Telegram: Connected\n"
-            status_msg += "❌ Whisky AI: Offline\n\n"
+            status_msg += "❌ Marine AI: Offline\n\n"
             status_msg += "**Possible causes:**\n"
             status_msg += "• Invalid API key\n"
             status_msg += "• Network connection issue\n"
             status_msg += "• API rate limit exceeded\n"
-            status_msg += "• Whisky AI service unavailable\n\n"
+            status_msg += "• Marine AI service unavailable\n\n"
             status_msg += "Admins: Use `/test` to diagnose"
         
         await update.message.reply_text(status_msg, parse_mode="Markdown")
@@ -625,7 +625,7 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show latest updates and new features."""
     try:
         update_msg = """
-📢 **WHISKY BOT - LATEST UPDATES**
+📢 **Marine - LATEST UPDATES**
 
 
 
@@ -651,7 +651,7 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/gayrate` - Fun vibes meter
 
 **🤖 AI COMMANDS:**
-• `/ai <question>` - Ask Whisky AI
+• `/ai <question>` - Ask Marine AI
 • `/speak` - AI respond mode (admin)
 
 **🛡️ ADMIN COMMANDS:**
@@ -677,7 +677,7 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 **📝 VERSION:** 3.0+
 
-🎉 Enjoy using Whisky Bot!
+🎉 Enjoy using Marine!
         """
         await update.message.reply_text(update_msg, parse_mode="Markdown")
         logger.info(f"📢 {update.effective_user.id} viewed updates")
@@ -982,7 +982,7 @@ async def test_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @user_tracking
 @rate_limit(cooldown_type="ai")
 async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /ai command to ask Whisky AI."""
+    """Handle /ai command to ask Marine AI."""
     user_id = str(update.effective_user.id)
     
     # Get query from arguments
@@ -1039,10 +1039,94 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # MESSAGE HANDLER (ENHANCED)
 # =========================
 
+async def _is_group_admin_user(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int) -> bool:
+    if user_id == OWNER_ID or user_id in ADMIN_IDS:
+        return True
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+        return member.status in {"administrator", "creator"}
+    except Exception as e:
+        logger.debug(f"Admin bypass check failed for {user_id} in {chat_id}: {e}")
+        return False
+
+
+async def _apply_security_punishment(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    user_id: int,
+    punishment: str,
+    reason: str,
+) -> str:
+    punishment = punishment.lower()
+    if punishment == "ban":
+        await context.bot.ban_chat_member(chat_id, user_id)
+        return "ban"
+    if punishment == "kick":
+        await context.bot.ban_chat_member(chat_id, user_id)
+        await context.bot.unban_chat_member(chat_id, user_id)
+        return "kick"
+    if punishment == "mute":
+        perms = ChatPermissions(can_send_messages=False)
+        await context.bot.restrict_chat_member(
+            chat_id,
+            user_id,
+            perms,
+            until_date=datetime.utcnow() + timedelta(minutes=MUTE_DURATION),
+        )
+        return "mute"
+    return "warn"
+
+
+async def _handle_security_findings(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    findings: list[str],
+) -> bool:
+    if not findings or not update.message or not update.effective_chat or not update.effective_user:
+        return False
+
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    chat_type = getattr(update.effective_chat, "type", "")
+    if chat_type not in {"group", "supergroup"}:
+        return False
+    if await _is_group_admin_user(context, chat_id, user_id):
+        logger.info("Security scanner bypassed admin %s in chat %s for %s", user_id, chat_id, findings)
+        return False
+
+    settings = group_store.all_settings(chat_id)
+    guardian_enabled = bool(settings.get("guardian"))
+    warning_limit = int(settings.get("warnings_limit", 3))
+    punishment = str(settings.get("punishment", "mute"))
+    reason = ",".join(findings)
+
+    try:
+        await update.message.delete()
+        group_store.log_action(chat_id, None, "security_delete", user_id, reason)
+    except Exception as e:
+        logger.warning("Security delete failed for %s in %s: %s", user_id, chat_id, e)
+
+    warning_count = group_store.add_warning(chat_id, user_id)
+    group_store.log_action(chat_id, None, "security_warn", user_id, f"{reason}; warnings={warning_count}")
+
+    should_punish = guardian_enabled or warning_count >= warning_limit
+    if should_punish:
+        try:
+            action = await _apply_security_punishment(context, chat_id, user_id, punishment, reason)
+            group_store.log_action(chat_id, None, f"security_{action}", user_id, reason)
+            if warning_count >= warning_limit:
+                group_store.clear_warnings(chat_id, user_id)
+        except Exception as e:
+            logger.warning("Security punishment failed for %s in %s: %s", user_id, chat_id, e)
+
+    logger.warning("Security findings handled in chat %s for user %s: %s", chat_id, user_id, findings)
+    return True
+
+
 @user_tracking
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced message handling."""
-    if not update.message or not update.message.text:
+    if not update.message or not update.message.text or not update.effective_chat or not update.effective_user:
         return
 
     user_id = str(update.effective_user.id)
@@ -1052,26 +1136,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     group_store.record_message(chat_id, user_id_int)
 
     findings = security_service.inspect_message(chat_id, user_id_int, update.message.text)
-    if findings and group_store.get_setting(chat_id, "guardian", False):
-        logger.warning(f"Guardian findings for {user_id_int}: {findings}")
-        if "link_spam" in findings or "flood" in findings or "repeated_messages" in findings:
-            try:
-                await update.message.delete()
-            except Exception:
-                pass
-            if "flood" in findings:
-                try:
-                    perms = ChatPermissions(can_send_messages=False)
-                    await context.bot.restrict_chat_member(
-                        chat_id,
-                        user_id_int,
-                        perms,
-                        until_date=datetime.utcnow() + timedelta(minutes=10),
-                    )
-                    group_store.log_action(chat_id, None, "guardian_mute", user_id_int, ",".join(findings))
-                except Exception as e:
-                    logger.warning(f"Guardian mute failed for {user_id_int}: {e}")
-            return
+    if await _handle_security_findings(update, context, findings):
+        return
 
     # Track recent non-command messages for spam cleanup
     RECENT_CHAT_MESSAGES[chat_id].append(update.message.message_id)
@@ -1079,9 +1145,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         RECENT_CHAT_MESSAGES[chat_id].pop(0)
     
     try:
-        # SPEAK MODE - Whisky AI responds to all messages
-        speak_mode = bot_data.get("metadata", {}).get("speak_mode", False)
-        if speak_mode:
+        # SPEAK MODE - chat-local Marine AI replies for this group only.
+        speak_mode = group_store.get_setting(chat_id, "speak_mode", False)
+        ai_enabled = group_store.get_setting(chat_id, "ai_enabled", True)
+        if speak_mode and ai_enabled:
             typing_msg = None
             try:
                 typing_msg = await update.message.reply_text("🤖 Thinking...")
@@ -2327,19 +2394,19 @@ async def kurdishezdi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Kurdishezdi error: {e}")
 
 @user_tracking
-async def whisky_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Special command - Whisky price."""
+async def marine_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Special command - Marine price."""
     try:
-        await update.message.reply_text("🥃 500$ WHISKY")
-        logger.info(f"🥃 {update.effective_user.id} triggered whisky")
+        await update.message.reply_text("🥃 500$ MARINE")
+        logger.info(f"🥃 {update.effective_user.id} triggered marine")
     except Exception as e:
-        logger.error(f"Whisky error: {e}")
+        logger.error(f"Marine error: {e}")
 
 @user_tracking
 async def daddy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Special command - Whisky The Great."""
+    """Special command - Marine The Great."""
     try:
-        await update.message.reply_text("👑 Whisky The Great")
+        await update.message.reply_text("👑 Marine The Great")
         logger.info(f"👑 {update.effective_user.id} triggered daddy")
     except Exception as e:
         logger.error(f"Daddy error: {e}")
@@ -2355,9 +2422,9 @@ async def waleed(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @user_tracking
 async def kiss(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Special command - Mauh by whisky."""
+    """Special command - Mauh by marine."""
     try:
-        await update.message.reply_text("💋 Mauh by whisky")
+        await update.message.reply_text("💋 Mauh by marine")
         logger.info(f"💋 {update.effective_user.id} triggered kiss")
     except Exception as e:
         logger.error(f"Kiss error: {e}")
@@ -2375,13 +2442,13 @@ async def ataturk(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @user_tracking
 @admin_only
 async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Enable Whisky AI speak mode for admins."""
+    """Enable Marine AI speak mode for admins."""
     try:
-        # Ensure metadata exists
-        if "metadata" not in bot_data:
-            bot_data["metadata"] = {}
-        bot_data["metadata"]["speak_mode"] = True
-        await queue_data_save()
+        chat_id = _safe_chat_id(update)
+        if chat_id is None:
+            await update.message.reply_text("Could not determine this chat.")
+            return
+        group_store.set_setting(chat_id, "speak_mode", True)
         await update.message.reply_text("🤖 SPEAK MODE ENABLED\n\nI will now respond to all messages with AI")
         logger.info(f"🤖 {update.effective_user.id} enabled speak mode")
     except Exception as e:
@@ -2391,13 +2458,13 @@ async def speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @user_tracking
 @admin_only
 async def stop_speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Disable Whisky AI speak mode."""
+    """Disable Marine AI speak mode."""
     try:
-        # Ensure metadata exists
-        if "metadata" not in bot_data:
-            bot_data["metadata"] = {}
-        bot_data["metadata"]["speak_mode"] = False
-        await queue_data_save()
+        chat_id = _safe_chat_id(update)
+        if chat_id is None:
+            await update.message.reply_text("Could not determine this chat.")
+            return
+        group_store.set_setting(chat_id, "speak_mode", False)
         await update.message.reply_text("🔇 SPEAK MODE DISABLED\n\nBack to command mode")
         logger.info(f"🤖 {update.effective_user.id} disabled speak mode")
     except Exception as e:
@@ -2407,7 +2474,7 @@ async def stop_speak(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @user_tracking
 @admin_only
 async def unspeak(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Alias for stop_speak - disable Whisky AI speak mode."""
+    """Alias for stop_speak - disable Marine AI speak mode."""
     await stop_speak(update, context)
 
 # =========================
@@ -3482,8 +3549,8 @@ def setup_bot():
     app.add_handler(CommandHandler("Amanj", amanj))
     app.add_handler(CommandHandler("Arya", arya))
     app.add_handler(CommandHandler("kurdishezdi", kurdishezdi))
-    app.add_handler(CommandHandler("whisky", whisky_cmd))
-    app.add_handler(CommandHandler("Whisky", whisky_cmd))
+    app.add_handler(CommandHandler("marine", marine_cmd))
+    app.add_handler(CommandHandler("Marine", marine_cmd))
     app.add_handler(CommandHandler("daddy", daddy))
     app.add_handler(CommandHandler("Waleed", waleed))
     app.add_handler(CommandHandler("kiss", kiss))
@@ -3574,7 +3641,7 @@ def run_bot_with_recovery():
         while True:
             try:
                 logger.info("=" * 60)
-                logger.info("WHISKY_BOT starting")
+                logger.info("Marine starting")
                 logger.info(f"Admin IDs: {ADMIN_IDS}")
                 logger.info(f"AI Status: {'ONLINE' if AI_AVAILABLE else 'OFFLINE'}")
                 logger.info(f"Tracking {len(bot_data['stats'])} users")

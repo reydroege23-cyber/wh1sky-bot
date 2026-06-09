@@ -2,7 +2,7 @@
 
 ## 🎯 Mission Accomplished
 
-Your Whisky Bot economy system has been **fully upgraded to production-ready persistence**. All user data now survives:
+Your Marine economy system has been **fully upgraded to production-ready persistence**. All user data now survives:
 
 ✅ **Bot restarts**
 ✅ **Code updates & deployments**  

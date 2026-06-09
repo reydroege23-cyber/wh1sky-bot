@@ -1,11 +1,11 @@
-# 🥃 Whisky_bot - Advanced Telegram Bot with AI
+# 🥃 Marine - Advanced Telegram Bot with AI
 
 A production-ready Telegram bot with AI integration, advanced moderation tools, and user statistics.
 
 ## 🚀 Features
 
 ### User Features
-- **🤖 AI Chat** - Ask Whisky AI anything using `/ai <question>`
+- **🤖 AI Chat** - Ask Marine AI anything using `/ai <question>`
 - **📊 User Stats** - Track your messages and AI queries with `/stats`
 - **🚫 Auto-moderation** - NSFW content filtering
 
@@ -35,7 +35,7 @@ A production-ready Telegram bot with AI integration, advanced moderation tools, 
 
 1. **Clone/Download the project**
 ```bash
-cd Wh1sky_bot
+cd Marine
 ```
 
 2. **Create a virtual environment**
@@ -73,7 +73,7 @@ python main.py
 |---------|------------|
 | `/start` | Start the bot |
 | `/help` | Show all commands |
-| `/ai <question>` | Ask Whisky AI |
+| `/ai <question>` | Ask Marine AI |
 | `/stats` | View your statistics |
 
 ### Admin Commands
@@ -91,7 +91,7 @@ python main.py
 ## 📁 Project Structure
 
 ```
-Wh1sky_bot/
+Marine/
 ├── main.py              # Main bot code
 ├── requirements.txt     # Python dependencies
 ├── .env.example        # Environment variables template
@@ -171,15 +171,15 @@ For production:
 Example systemd service:
 ```ini
 [Unit]
-Description=Whisky_bot
+Description=Marine
 After=network.target
 
 [Service]
 Type=simple
 User=your_user
-WorkingDirectory=/path/to/Wh1sky_bot
-EnvironmentFile=/path/to/Wh1sky_bot/.env
-ExecStart=/path/to/Wh1sky_bot/venv/bin/python main.py
+WorkingDirectory=/path/to/Marine
+EnvironmentFile=/path/to/Marine/.env
+ExecStart=/path/to/Marine/venv/bin/python main.py
 Restart=always
 
 [Install]
@@ -192,7 +192,7 @@ Created for Telegram bot development.
 
 ## 👨‍💻 Author
 
-Whisky_bot - Advanced AI Telegram Bot
+Marine - Advanced AI Telegram Bot
 
 ---
 

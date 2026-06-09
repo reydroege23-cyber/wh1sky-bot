@@ -1,5 +1,5 @@
 """
-Utility functions for Whisky_bot
+Utility functions for Marine
 AI integration and common helpers
 """
 

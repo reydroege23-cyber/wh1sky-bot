@@ -1,4 +1,4 @@
-# 🥃 WHISKY_BOT - LATEST UPDATES & FIXES
+# 🥃 Marine - LATEST UPDATES & FIXES
 
 ## 🔧 FIXED ISSUES
 
@@ -322,7 +322,7 @@ Get-Content bot.log -Tail 20 -Wait
 
 ## ✨ SUMMARY
 
-**WHISKY_BOT is now:**
+**Marine is now:**
 - ✅ More fun (5 new games/tools)
 - ✅ More robust (HTTP error handling)
 - ✅ More stable (UTF-8 support)

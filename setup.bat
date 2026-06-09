@@ -1,9 +1,9 @@
 @echo off
-REM Setup script for Whisky_bot on Windows
+REM Setup script for Marine on Windows
 
 echo.
 echo ========================================
-echo  Whisky_bot Setup
+echo  Marine Setup
 echo ========================================
 echo.
 

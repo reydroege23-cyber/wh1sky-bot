@@ -1,5 +1,5 @@
 """
-Admin Economy Commands for Whisky_bot
+Admin Economy Commands for Marine
 Admin commands for managing virtual coins
 Only OWNER_ID has access to these commands
 

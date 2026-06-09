@@ -1,4 +1,4 @@
-# 🚀 QUICK START GUIDE - WHISKY BOT ELITE
+# 🚀 QUICK START GUIDE - Marine ELITE
 
 ## ⚡ 30-Second Setup
 
@@ -16,7 +16,7 @@ OPENROUTER_API_KEY=your_key_here
 
 Get tokens from:
 - **Telegram**: [@BotFather](https://t.me/botfather)
-- **Whisky AI**: [OpenRouter](https://openrouter.ai/keys)
+- **Marine AI**: [OpenRouter](https://openrouter.ai/keys)
 
 ### 3️⃣ Run Bot
 ```bash
@@ -87,7 +87,7 @@ Edit `config.py` to customize:
 ## 📁 Project Structure
 
 ```
-Wh1sky_bot/
+Marine/
 ├── main.py              # Bot code
 ├── config.py            # Settings
 ├── requirements.txt     # Dependencies
@@ -104,7 +104,7 @@ Wh1sky_bot/
 ## ✨ ELITE VERSION FEATURES
 
 ✅ **14+ Commands** - Comprehensive moderation
-✅ **AI Integration** - Whisky AI (OpenRouter)
+✅ **AI Integration** - Marine AI (OpenRouter)
 ✅ **User Tracking** - Statistics & history
 ✅ **Persistent Data** - Survives restarts
 ✅ **Admin System** - Multi-admin support
@@ -125,4 +125,4 @@ Wh1sky_bot/
 
 ---
 
-**🥃 WHISKY_BOT ELITE - Ready to serve!**
+**🥃 Marine ELITE - Ready to serve!**

@@ -1,4 +1,4 @@
-# 🥃 WHISKY_BOT ELITE - DEPLOYMENT GUIDE
+# 🥃 Marine ELITE - DEPLOYMENT GUIDE
 
 ## ✅ PRE-DEPLOYMENT CHECKLIST
 
@@ -50,7 +50,7 @@ python main.py
 Expected output:
 ```
 ============================================================
-🥃 WHISKY_BOT - ELITE VERSION STARTING
+🥃 Marine - ELITE VERSION STARTING
 👮 Admin IDs: [...]
 🤖 AI Status: ✅ ONLINE
 📊 Tracking X users
@@ -71,18 +71,18 @@ Expected output:
 
 ### Option 1: System Service (Linux/Mac)
 
-Create `/etc/systemd/system/whisky-bot.service`:
+Create `/etc/systemd/system/marine-bot.service`:
 ```ini
 [Unit]
-Description=Whisky_bot Telegram Bot
+Description=Marine Telegram Bot
 After=network.target
 
 [Service]
 Type=simple
-User=whisky
-WorkingDirectory=/home/whisky/whisky_bot
-EnvironmentFile=/home/whisky/whisky_bot/.env
-ExecStart=/home/whisky/whisky_bot/venv/bin/python main.py
+User=marine
+WorkingDirectory=/home/marine/marine_bot
+EnvironmentFile=/home/marine/marine_bot/.env
+ExecStart=/home/marine/marine_bot/venv/bin/python main.py
 Restart=always
 RestartSec=10
 
@@ -92,9 +92,9 @@ WantedBy=multi-user.target
 
 Enable and start:
 ```bash
-sudo systemctl enable whisky-bot
-sudo systemctl start whisky-bot
-sudo systemctl status whisky-bot
+sudo systemctl enable marine-bot
+sudo systemctl start marine-bot
+sudo systemctl status marine-bot
 ```
 
 ### Option 2: Docker
@@ -115,22 +115,22 @@ CMD ["python", "main.py"]
 
 Build and run:
 ```bash
-docker build -t whisky-bot .
-docker run -d --env-file .env whisky-bot
+docker build -t marine-bot .
+docker run -d --env-file .env marine-bot
 ```
 
 ### Option 3: Screen/Tmux
 
 Using screen:
 ```bash
-screen -S whisky-bot
+screen -S marine-bot
 python main.py
 # Press Ctrl+A then D to detach
 ```
 
 Using tmux:
 ```bash
-tmux new-session -d -s whisky-bot python main.py
+tmux new-session -d -s marine-bot python main.py
 ```
 
 ---
@@ -187,14 +187,14 @@ cp bot_data.json bot_data.json.backup
 cp bot.log bot.log.backup
 
 # Archive old data
-tar -czf whisky-bot-backup-$(date +%Y%m%d).tar.gz \
+tar -czf marine-bot-backup-$(date +%Y%m%d).tar.gz \
     bot_data.json bot.log config.py
 ```
 
 ### Update Procedure
 ```bash
 # Stop bot
-# Ctrl+C or: systemctl stop whisky-bot
+# Ctrl+C or: systemctl stop marine-bot
 
 # Backup current state
 cp bot_data.json bot_data.json.backup
@@ -206,7 +206,7 @@ git pull  # or download manually
 pip install -r requirements.txt
 
 # Start bot
-python main.py  # or: systemctl start whisky-bot
+python main.py  # or: systemctl start marine-bot
 ```
 
 ---
@@ -363,7 +363,7 @@ python validate.py
 
 ## 🎉 READY FOR PRODUCTION!
 
-Your **Whisky_bot Elite** is now production-ready. Follow this guide for smooth deployment and maintenance.
+Your **Marine Elite** is now production-ready. Follow this guide for smooth deployment and maintenance.
 
 **Questions?** Check the logs and documentation.
 

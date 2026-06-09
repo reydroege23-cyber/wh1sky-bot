@@ -307,6 +307,35 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Threat level: {security_service.threat_level(_chat_id(update))}\nRecent incidents: {counts}")
 
 
+async def security(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    chat_id = _chat_id(update)
+    settings = store.all_settings(chat_id)
+    counts = store.security_counts(chat_id, 60)
+    lines = [
+        f"Threat level: {security_service.threat_level(chat_id)}",
+        f"Guardian: {settings.get('guardian')}",
+        f"Anti-spam: {settings.get('antispam')}",
+        f"Anti-link: {settings.get('antilink')}",
+        f"Anti-flood: {settings.get('antiflood')}",
+        f"Anti-emoji: {settings.get('antiemoji')}",
+        f"Anti-raid: {settings.get('antiraid')}",
+        f"Punishment: {settings.get('punishment')}",
+        f"Warning limit: {settings.get('warnings_limit')}",
+        f"Recent incidents: {counts or 'none'}",
+    ]
+    await update.message.reply_text("\n".join(lines))
+
+
+async def testsecurity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    sample = " ".join(context.args).strip() or "https://example.com @a @b @c @d @e @f"
+    findings = security_service.inspect_message(_chat_id(update), _actor_id(update), sample)
+    await update.message.reply_text(f"Test findings: {findings or 'none'}")
+
+
 async def threatlevel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await scan(update, context)
 
@@ -597,6 +626,8 @@ COMMANDS: dict[str, Any] = {
     "verify": verify,
     "unverify": unverify,
     "scan": scan,
+    "security": security,
+    "testsecurity": testsecurity,
     "threatlevel": threatlevel,
     "checkalt": checkalt,
     "checkalts": checkalts,

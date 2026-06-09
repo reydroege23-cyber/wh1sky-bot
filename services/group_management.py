@@ -29,6 +29,9 @@ DEFAULT_SETTINGS = {
     "antiraid": True,
     "captcha": False,
     "ai_enabled": True,
+    "speak_mode": False,
+    "welcome_enabled": False,
+    "goodbye_enabled": False,
     "slowmode": 0,
     "spam_threshold": 5,
     "flood_window": 10,
@@ -38,9 +41,69 @@ DEFAULT_SETTINGS = {
     "punishment": "mute",
     "log_channel": "",
     "group_language": "en",
+    "maintenance": False,
+    "command_permissions": "{}",
     "rules": "No rules have been set yet.",
     "welcome": "Welcome {mention} to {chat}!",
     "goodbye": "Goodbye {name}.",
+}
+
+
+SETTING_COLUMNS: dict[str, tuple[str, str]] = {
+    "antispam": ("antispam_enabled", "bool"),
+    "antilink": ("antilink_enabled", "bool"),
+    "antiflood": ("antiflood_enabled", "bool"),
+    "antiemoji": ("antiemoji_enabled", "bool"),
+    "antiraid": ("antiraid_enabled", "bool"),
+    "guardian": ("guardian_enabled", "bool"),
+    "captcha": ("captcha_enabled", "bool"),
+    "ai_enabled": ("ai_enabled", "bool"),
+    "speak_mode": ("speak_mode_enabled", "bool"),
+    "welcome_enabled": ("welcome_enabled", "bool"),
+    "goodbye_enabled": ("goodbye_enabled", "bool"),
+    "maintenance": ("maintenance_enabled", "bool"),
+    "rules": ("rules", "text"),
+    "welcome": ("welcome_message", "text"),
+    "goodbye": ("goodbye_message", "text"),
+    "warnings_limit": ("warning_limit", "int"),
+    "punishment": ("punishment_type", "text"),
+    "log_channel": ("log_chat_id", "nullable_int"),
+    "group_language": ("group_language", "text"),
+    "command_permissions": ("command_permissions", "text"),
+    "slowmode": ("slowmode", "int"),
+    "spam_threshold": ("spam_threshold", "int"),
+    "flood_window": ("flood_window", "int"),
+    "raid_join_threshold": ("raid_join_threshold", "int"),
+    "raid_window": ("raid_window", "int"),
+}
+
+
+CHAT_SETTINGS_COLUMNS_SQL = {
+    "antispam_enabled": "INTEGER NOT NULL DEFAULT 1",
+    "antilink_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "antiflood_enabled": "INTEGER NOT NULL DEFAULT 1",
+    "antiemoji_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "antiraid_enabled": "INTEGER NOT NULL DEFAULT 1",
+    "guardian_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "captcha_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "ai_enabled": "INTEGER NOT NULL DEFAULT 1",
+    "speak_mode_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "welcome_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "goodbye_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "maintenance_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "rules": "TEXT NOT NULL DEFAULT 'No rules have been set yet.'",
+    "welcome_message": "TEXT NOT NULL DEFAULT 'Welcome {mention} to {chat}!'",
+    "goodbye_message": "TEXT NOT NULL DEFAULT 'Goodbye {name}.'",
+    "warning_limit": "INTEGER NOT NULL DEFAULT 3",
+    "punishment_type": "TEXT NOT NULL DEFAULT 'mute'",
+    "log_chat_id": "INTEGER DEFAULT NULL",
+    "group_language": "TEXT NOT NULL DEFAULT 'en'",
+    "command_permissions": "TEXT NOT NULL DEFAULT '{}'",
+    "slowmode": "INTEGER NOT NULL DEFAULT 0",
+    "spam_threshold": "INTEGER NOT NULL DEFAULT 5",
+    "flood_window": "INTEGER NOT NULL DEFAULT 10",
+    "raid_join_threshold": "INTEGER NOT NULL DEFAULT 8",
+    "raid_window": "INTEGER NOT NULL DEFAULT 60",
 }
 
 
@@ -80,14 +143,6 @@ class GroupStore:
                 CREATE INDEX IF NOT EXISTS idx_mod_logs_chat_created
                     ON mod_logs(chat_id, created_at DESC);
 
-                CREATE TABLE IF NOT EXISTS chat_settings (
-                    chat_id INTEGER NOT NULL,
-                    key TEXT NOT NULL,
-                    value TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY(chat_id, key)
-                );
-
                 CREATE TABLE IF NOT EXISTS permanent_bans (
                     chat_id INTEGER NOT NULL,
                     user_id INTEGER NOT NULL,
@@ -102,6 +157,14 @@ class GroupStore:
                     user_id INTEGER NOT NULL,
                     message_count INTEGER NOT NULL DEFAULT 0,
                     last_seen TEXT NOT NULL,
+                    PRIMARY KEY(chat_id, user_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS warnings (
+                    chat_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    warning_count INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
                     PRIMARY KEY(chat_id, user_id)
                 );
 
@@ -133,6 +196,57 @@ class GroupStore:
                 );
                 """
             )
+            self._migrate_chat_settings(conn)
+
+    def _migrate_chat_settings(self, conn: sqlite3.Connection) -> None:
+        """Create the per-chat settings table and migrate legacy key/value rows."""
+        columns = conn.execute("PRAGMA table_info(chat_settings)").fetchall()
+        names = {row["name"] for row in columns}
+
+        if "key" in names and "value" in names:
+            legacy_name = "chat_settings_kv"
+            existing = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (legacy_name,),
+            ).fetchone()
+            if existing:
+                stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+                legacy_name = f"chat_settings_kv_{stamp}"
+            conn.execute(f"ALTER TABLE chat_settings RENAME TO {legacy_name}")
+            self._create_chat_settings_table(conn)
+            rows = conn.execute(f"SELECT chat_id, key, value FROM {legacy_name}").fetchall()
+            for row in rows:
+                if row["key"] not in SETTING_COLUMNS:
+                    continue
+                try:
+                    value = json.loads(row["value"])
+                except json.JSONDecodeError:
+                    value = row["value"]
+                self._set_setting_conn(conn, int(row["chat_id"]), row["key"], value)
+            return
+
+        self._create_chat_settings_table(conn)
+        current_columns = {row["name"] for row in conn.execute("PRAGMA table_info(chat_settings)").fetchall()}
+        for column, column_sql in CHAT_SETTINGS_COLUMNS_SQL.items():
+            if column not in current_columns:
+                conn.execute(f"ALTER TABLE chat_settings ADD COLUMN {column} {column_sql}")
+        if "updated_at" not in current_columns:
+            conn.execute("ALTER TABLE chat_settings ADD COLUMN updated_at TEXT")
+
+    @staticmethod
+    def _create_chat_settings_table(conn: sqlite3.Connection) -> None:
+        extra_columns = ",\n                    ".join(
+            f"{column} {definition}" for column, definition in CHAT_SETTINGS_COLUMNS_SQL.items()
+        )
+        conn.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS chat_settings (
+                chat_id INTEGER PRIMARY KEY,
+                {extra_columns},
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
 
     @staticmethod
     def now() -> str:
@@ -163,36 +277,89 @@ class GroupStore:
             ).fetchall()
 
     def set_setting(self, chat_id: int, key: str, value: Any) -> None:
-        payload = json.dumps(value)
         with self.connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO chat_settings(chat_id, key, value, updated_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(chat_id, key) DO UPDATE SET
-                    value = excluded.value,
-                    updated_at = excluded.updated_at
-                """,
-                (chat_id, key, payload, self.now()),
-            )
+            self._set_setting_conn(conn, chat_id, key, value)
+
+    def _ensure_settings_row(self, conn: sqlite3.Connection, chat_id: int) -> None:
+        conn.execute(
+            "INSERT OR IGNORE INTO chat_settings(chat_id, updated_at) VALUES (?, ?)",
+            (chat_id, self.now()),
+        )
+
+    def _set_setting_conn(self, conn: sqlite3.Connection, chat_id: int, key: str, value: Any) -> None:
+        if key not in SETTING_COLUMNS:
+            raise KeyError(f"Unknown chat setting: {key}")
+        column, value_type = SETTING_COLUMNS[key]
+        self._ensure_settings_row(conn, chat_id)
+        conn.execute(
+            f"UPDATE chat_settings SET {column} = ?, updated_at = ? WHERE chat_id = ?",
+            (self._encode_setting(value, value_type), self.now(), chat_id),
+        )
 
     def get_setting(self, chat_id: int, key: str, default: Any = None) -> Any:
         if default is None:
             default = DEFAULT_SETTINGS.get(key)
+        if key not in SETTING_COLUMNS:
+            return default
+        column, value_type = SETTING_COLUMNS[key]
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT value FROM chat_settings WHERE chat_id = ? AND key = ?",
-                (chat_id, key),
+                f"SELECT {column} AS value FROM chat_settings WHERE chat_id = ?",
+                (chat_id,),
             ).fetchone()
-        return json.loads(row["value"]) if row else default
+        return self._decode_setting(row["value"], value_type, default) if row else default
 
     def all_settings(self, chat_id: int) -> dict[str, Any]:
         settings = dict(DEFAULT_SETTINGS)
         with self.connect() as conn:
-            rows = conn.execute("SELECT key, value FROM chat_settings WHERE chat_id = ?", (chat_id,)).fetchall()
-        for row in rows:
-            settings[row["key"]] = json.loads(row["value"])
+            row = conn.execute("SELECT * FROM chat_settings WHERE chat_id = ?", (chat_id,)).fetchone()
+        if not row:
+            return settings
+        for key, (column, value_type) in SETTING_COLUMNS.items():
+            settings[key] = self._decode_setting(row[column], value_type, DEFAULT_SETTINGS.get(key))
         return settings
+
+    def reset_settings(self, chat_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM chat_settings WHERE chat_id = ?", (chat_id,))
+            self._ensure_settings_row(conn, chat_id)
+
+    def export_settings(self, chat_id: int) -> dict[str, Any]:
+        return self.all_settings(chat_id)
+
+    def import_settings(self, chat_id: int, settings: dict[str, Any]) -> None:
+        with self.connect() as conn:
+            self._ensure_settings_row(conn, chat_id)
+            for key, value in settings.items():
+                if key in SETTING_COLUMNS:
+                    self._set_setting_conn(conn, chat_id, key, value)
+
+    def copy_settings(self, source_chat_id: int, target_chat_id: int) -> None:
+        self.import_settings(target_chat_id, self.export_settings(source_chat_id))
+
+    @staticmethod
+    def _encode_setting(value: Any, value_type: str) -> Any:
+        if value_type == "bool":
+            return 1 if bool(value) else 0
+        if value_type == "int":
+            return int(value)
+        if value_type == "nullable_int":
+            if value in {None, "", "none", "off"}:
+                return None
+            return int(value)
+        return str(value)
+
+    @staticmethod
+    def _decode_setting(value: Any, value_type: str, default: Any = None) -> Any:
+        if value is None:
+            return default
+        if value_type == "bool":
+            return bool(value)
+        if value_type == "int":
+            return int(value)
+        if value_type == "nullable_int":
+            return "" if value is None else str(value)
+        return value
 
     def add_permanent_ban(self, chat_id: int, user_id: int, reason: str, created_by: int) -> None:
         with self.connect() as conn:
@@ -237,6 +404,37 @@ class GroupStore:
                 """,
                 (chat_id, user_id, self.now()),
             )
+
+    def add_warning(self, chat_id: int, user_id: int) -> int:
+        with self.connect() as conn:
+            self._ensure_settings_row(conn, chat_id)
+            conn.execute(
+                """
+                INSERT INTO warnings(chat_id, user_id, warning_count, updated_at)
+                VALUES (?, ?, 1, ?)
+                ON CONFLICT(chat_id, user_id) DO UPDATE SET
+                    warning_count = warning_count + 1,
+                    updated_at = excluded.updated_at
+                """,
+                (chat_id, user_id, self.now()),
+            )
+            row = conn.execute(
+                "SELECT warning_count FROM warnings WHERE chat_id = ? AND user_id = ?",
+                (chat_id, user_id),
+            ).fetchone()
+        return int(row["warning_count"])
+
+    def get_warnings(self, chat_id: int, user_id: int) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT warning_count FROM warnings WHERE chat_id = ? AND user_id = ?",
+                (chat_id, user_id),
+            ).fetchone()
+        return int(row["warning_count"]) if row else 0
+
+    def clear_warnings(self, chat_id: int, user_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM warnings WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
 
     def top_active(self, chat_id: int, limit: int = 10) -> list[sqlite3.Row]:
         with self.connect() as conn:
@@ -334,6 +532,8 @@ class SecurityService:
         self.joins: dict[int, list[float]] = {}
 
     def record_join(self, chat_id: int, user_id: int) -> str | None:
+        if not self.store.get_setting(chat_id, "antiraid", True):
+            return None
         now = time.time()
         joins = self.joins.setdefault(chat_id, [])
         joins.append(now)
@@ -355,13 +555,14 @@ class SecurityService:
         messages[:] = [(stamp, msg) for stamp, msg in messages if now - stamp <= window]
 
         lowered = text.lower()
+        antispam_enabled = self.store.get_setting(chat_id, "antispam", True)
         if self.store.get_setting(chat_id, "antilink", False) and ("http://" in lowered or "https://" in lowered or "t.me/" in lowered):
             findings.append("link_spam")
         if self.store.get_setting(chat_id, "antiflood", True) and len(messages) >= threshold:
             findings.append("flood")
-        if len({msg for _, msg in messages[-3:]}) == 1 and len(messages) >= 3:
+        if antispam_enabled and len({msg for _, msg in messages[-3:]}) == 1 and len(messages) >= 3:
             findings.append("repeated_messages")
-        if text.count("@") >= 6:
+        if antispam_enabled and text.count("@") >= 6:
             findings.append("mention_spam")
         if self.store.get_setting(chat_id, "antiemoji", False) and _emoji_density(text) > 0.65 and len(text) >= 12:
             findings.append("emoji_spam")
