@@ -38,6 +38,7 @@ from commands.admin_panel import COMMANDS as ADMIN_PANEL_COMMANDS, panel_callbac
 from services.group_management import security_service, store as group_store
 from healthcheck import start_background as start_health_server
 from bot_commands import command_names as menu_command_names, sync_bot_commands
+from marine_personality import marine_system_prompt
 
 configure_logging(LOG_FILE, LOG_LEVEL, LOG_FORMAT)
 logger = logging.getLogger(__name__)
@@ -384,7 +385,7 @@ def rate_limit(cooldown_type: str = "command", cooldown_seconds: Optional[int] =
 # AI FUNCTIONS (ENHANCED)
 # =========================
 
-async def ask_ai(message: str) -> str:
+async def ask_ai(message: str, chat_context: str = "group") -> str:
     """Get response from AI using OpenRouter API (optimized)."""
     if not AI_AVAILABLE or ai_client is None:
         return "⚠️ AI service is offline. Contact admin."
@@ -396,7 +397,7 @@ async def ask_ai(message: str) -> str:
                 lambda: ai_client.chat.completions.create(
                     model=AI_MODEL,
                     messages=[
-                        {"role": "system", "content": "You are a helpful Telegram assistant. Respond concisely and friendly."},
+                        {"role": "system", "content": marine_system_prompt(chat_context)},
                         {"role": "user", "content": message}
                     ],
                     temperature=0.7,
@@ -965,7 +966,7 @@ async def test_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = await update.message.reply_text("🧪 Testing AI connection...")
         logger.info("🧪 Starting AI test...")
         
-        response = await ask_ai("Say 'AI is working' in one sentence")
+        response = await ask_ai("Say 'AI is working' in one sentence", chat_context="group")
         logger.info(f"🧪 Test response: {response}")
         
         await msg.edit_text(f"✅ AI Test Result:\n\n{response}")
@@ -1003,7 +1004,8 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"🤖 Processing AI query from {user_id}: {query[:50]}...")
         
         # Get AI response
-        response = await ask_ai(query)
+        chat_context = "private" if update.effective_chat.type == "private" else "group"
+        response = await ask_ai(query, chat_context=chat_context)
         logger.info(f"🤖 Got response: {len(response)} chars")
         
         # Try to edit the message
@@ -1123,6 +1125,25 @@ async def _handle_security_findings(
     return True
 
 
+def _should_marine_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Return True when Marine should answer a non-command message."""
+    if not update.message or not update.message.text or not update.effective_chat:
+        return False
+    if update.effective_chat.type == "private":
+        return True
+
+    lowered = update.message.text.lower()
+    if "marine" in lowered:
+        return True
+    bot_username = getattr(context.bot, "username", "") or ""
+    if bot_username and f"@{bot_username.lower()}" in lowered:
+        return True
+    reply = update.message.reply_to_message
+    if reply and reply.from_user and getattr(context.bot, "id", None) == reply.from_user.id:
+        return True
+    return False
+
+
 @user_tracking
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced message handling."""
@@ -1148,12 +1169,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # SPEAK MODE - chat-local Marine AI replies for this group only.
         speak_mode = group_store.get_setting(chat_id, "speak_mode", False)
         ai_enabled = group_store.get_setting(chat_id, "ai_enabled", True)
-        if speak_mode and ai_enabled:
+        if speak_mode and ai_enabled and _should_marine_reply(update, context):
             typing_msg = None
             try:
                 typing_msg = await update.message.reply_text("🤖 Thinking...")
                 logger.info(f"🤖 Speak mode - processing from {user_id}")
-                response = await ask_ai(update.message.text)
+                chat_context = "private" if update.effective_chat.type == "private" else "group"
+                response = await ask_ai(update.message.text, chat_context=chat_context)
                 logger.info(f"🤖 Got response: {len(response)} chars")
                 
                 if typing_msg:
@@ -1209,7 +1231,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 # Skip typing indicator for faster response
-                response = await ask_ai(query)
+                chat_context = "private" if update.effective_chat.type == "private" else "group"
+                response = await ask_ai(query, chat_context=chat_context)
                 await update.message.reply_text(response)
                 
                 bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1

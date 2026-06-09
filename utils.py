@@ -8,6 +8,7 @@ import logging
 import asyncio
 import os
 from config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, AI_MODEL, AI_TIMEOUT, MAX_RESPONSE_LENGTH
+from marine_personality import marine_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ ai_client = (
     else None
 )
 
-async def ask_gemini(prompt: str) -> str:
+async def ask_gemini(prompt: str, chat_context: str = "group") -> str:
     """
     Send a prompt to OpenRouter AI and get a response.
     
@@ -39,7 +40,7 @@ async def ask_gemini(prompt: str) -> str:
                 lambda: ai_client.chat.completions.create(
                     model=AI_MODEL,
                     messages=[
-                        {"role": "system", "content": "You are a helpful Telegram assistant."},
+                        {"role": "system", "content": marine_system_prompt(chat_context)},
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.7,
@@ -82,7 +83,7 @@ def format_help_message(max_warnings: int) -> str:
 **Regular Users:**
 • `/start` - Start the bot
 • `/help` - Show this help menu
-• `/ai <message>` - Ask Gemini AI anything
+• `/ai <message>` - Ask Marine AI anything
 • `/stats` - View your user statistics
 
 **Admin Commands:**
