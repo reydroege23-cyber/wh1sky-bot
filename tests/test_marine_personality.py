@@ -20,6 +20,25 @@ def test_marine_prompt_supports_private_context():
     assert "longer conversation" in prompt
 
 
+def test_marine_prompt_includes_scoped_fictional_lore():
+    prompt = marine_system_prompt("group")
+
+    assert "Only when users specifically ask" in prompt
+    assert "husband, marriage, romantic status" in prompt
+    assert "My husband is Whisky the Great. 💙" in prompt
+    assert "playful character lore only" in prompt
+
+
+def test_marine_prompt_scopes_whisky_special_treatment_to_owner():
+    owner_prompt = marine_system_prompt("group", is_owner=True)
+    regular_prompt = marine_system_prompt("group", is_owner=False)
+
+    assert "owner ID 8577797097" in owner_prompt
+    assert "Whisky the Great" in owner_prompt
+    assert "You may use the special Whisky treatment" in owner_prompt
+    assert "Do not use Whisky special treatment" in regular_prompt
+
+
 def test_should_marine_reply_only_when_invoked_in_groups():
     import main
 

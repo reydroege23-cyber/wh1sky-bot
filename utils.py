@@ -19,7 +19,7 @@ ai_client = (
     else None
 )
 
-async def ask_gemini(prompt: str, chat_context: str = "group") -> str:
+async def ask_gemini(prompt: str, chat_context: str = "group", is_owner: bool = False) -> str:
     """
     Send a prompt to OpenRouter AI and get a response.
     
@@ -40,7 +40,7 @@ async def ask_gemini(prompt: str, chat_context: str = "group") -> str:
                 lambda: ai_client.chat.completions.create(
                     model=AI_MODEL,
                     messages=[
-                        {"role": "system", "content": marine_system_prompt(chat_context)},
+                        {"role": "system", "content": marine_system_prompt(chat_context, is_owner=is_owner)},
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.7,

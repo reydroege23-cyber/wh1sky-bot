@@ -385,7 +385,7 @@ def rate_limit(cooldown_type: str = "command", cooldown_seconds: Optional[int] =
 # AI FUNCTIONS (ENHANCED)
 # =========================
 
-async def ask_ai(message: str, chat_context: str = "group") -> str:
+async def ask_ai(message: str, chat_context: str = "group", is_owner: bool = False) -> str:
     """Get response from AI using OpenRouter API (optimized)."""
     if not AI_AVAILABLE or ai_client is None:
         return "⚠️ AI service is offline. Contact admin."
@@ -397,7 +397,7 @@ async def ask_ai(message: str, chat_context: str = "group") -> str:
                 lambda: ai_client.chat.completions.create(
                     model=AI_MODEL,
                     messages=[
-                        {"role": "system", "content": marine_system_prompt(chat_context)},
+                        {"role": "system", "content": marine_system_prompt(chat_context, is_owner=is_owner)},
                         {"role": "user", "content": message}
                     ],
                     temperature=0.7,
@@ -966,7 +966,7 @@ async def test_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = await update.message.reply_text("🧪 Testing AI connection...")
         logger.info("🧪 Starting AI test...")
         
-        response = await ask_ai("Say 'AI is working' in one sentence", chat_context="group")
+        response = await ask_ai("Say 'AI is working' in one sentence", chat_context="group", is_owner=True)
         logger.info(f"🧪 Test response: {response}")
         
         await msg.edit_text(f"✅ AI Test Result:\n\n{response}")
@@ -1005,7 +1005,7 @@ async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Get AI response
         chat_context = "private" if update.effective_chat.type == "private" else "group"
-        response = await ask_ai(query, chat_context=chat_context)
+        response = await ask_ai(query, chat_context=chat_context, is_owner=update.effective_user.id == OWNER_ID)
         logger.info(f"🤖 Got response: {len(response)} chars")
         
         # Try to edit the message
@@ -1175,7 +1175,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 typing_msg = await update.message.reply_text("🤖 Thinking...")
                 logger.info(f"🤖 Speak mode - processing from {user_id}")
                 chat_context = "private" if update.effective_chat.type == "private" else "group"
-                response = await ask_ai(update.message.text, chat_context=chat_context)
+                response = await ask_ai(
+                    update.message.text,
+                    chat_context=chat_context,
+                    is_owner=update.effective_user.id == OWNER_ID,
+                )
                 logger.info(f"🤖 Got response: {len(response)} chars")
                 
                 if typing_msg:
@@ -1232,7 +1236,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 # Skip typing indicator for faster response
                 chat_context = "private" if update.effective_chat.type == "private" else "group"
-                response = await ask_ai(query, chat_context=chat_context)
+                response = await ask_ai(query, chat_context=chat_context, is_owner=update.effective_user.id == OWNER_ID)
                 await update.message.reply_text(response)
                 
                 bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
@@ -2089,7 +2093,7 @@ async def dream(update: Update, context: ContextTypes.DEFAULT_TYPE):
         dream_prompt = "You are a creative dream generator. Generate a SHORT, WEIRD, and SURREAL dream story (2-3 sentences). Make it absurd, confusing, and dreamlike with unexpected twists. Be creative and weird!"
         
         # Get AI response
-        dream_story = await ask_ai(dream_prompt)
+        dream_story = await ask_ai(dream_prompt, is_owner=update.effective_user.id == OWNER_ID)
         
         # Edit the thinking message with the dream
         try:
