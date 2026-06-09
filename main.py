@@ -36,6 +36,7 @@ from single_instance import SingleInstanceLock
 from commands.group_management import COMMANDS as GROUP_MANAGEMENT_COMMANDS
 from services.group_management import security_service, store as group_store
 from healthcheck import start_background as start_health_server
+from bot_commands import command_names as menu_command_names, sync_bot_commands
 
 configure_logging(LOG_FILE, LOG_LEVEL, LOG_FORMAT)
 logger = logging.getLogger(__name__)
@@ -3415,7 +3416,7 @@ async def periodic_save_task(app):
 def setup_bot():
     """Initialize and setup bot."""
     require_runtime_config()
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).post_init(sync_bot_commands).build()
     
     # Error handler
     app.add_error_handler(error_handler)
@@ -3432,14 +3433,18 @@ def setup_bot():
     app.add_handler(CommandHandler("updates", update_command))
     app.add_handler(CommandHandler("test", test_ai))
     app.add_handler(CommandHandler("ai", ai_command))
+    app.add_handler(CommandHandler("warn", warn))
     app.add_handler(CommandHandler("ilikeu", warn))
     app.add_handler(CommandHandler("warns", check_warns))
+    app.add_handler(CommandHandler("clearwarns", clear_warns))
     app.add_handler(CommandHandler("clear_warns", clear_warns))
+    app.add_handler(CommandHandler("mute", mute))
     app.add_handler(CommandHandler("Shut", mute))
     app.add_handler(CommandHandler("unmute", unmute))
     app.add_handler(CommandHandler("unshut", unmute))
     app.add_handler(CommandHandler("kick", kick))
     app.add_handler(CommandHandler("nuke", nuke))
+    app.add_handler(CommandHandler("ban", ban))
     app.add_handler(CommandHandler("iloveu", iloveu))
     app.add_handler(CommandHandler("unban", unban))
     app.add_handler(CommandHandler("foreverban", foreverban))
@@ -3476,6 +3481,7 @@ def setup_bot():
     app.add_handler(CommandHandler("Amanj", amanj))
     app.add_handler(CommandHandler("Arya", arya))
     app.add_handler(CommandHandler("kurdishezdi", kurdishezdi))
+    app.add_handler(CommandHandler("whisky", whisky_cmd))
     app.add_handler(CommandHandler("Whisky", whisky_cmd))
     app.add_handler(CommandHandler("daddy", daddy))
     app.add_handler(CommandHandler("Waleed", waleed))
@@ -3521,6 +3527,9 @@ def setup_bot():
 
     for command_name, handler in GROUP_MANAGEMENT_COMMANDS.items():
         app.add_handler(CommandHandler(command_name, handler))
+
+    registered_menu_commands = menu_command_names()
+    logger.info("Registered %d Telegram menu commands in code", len(registered_menu_commands))
 
     app.add_handler(CallbackQueryHandler(lasthope_callback))
 

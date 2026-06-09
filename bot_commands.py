@@ -1,0 +1,98 @@
+"""Telegram command menu synchronization.
+
+Telegram's slash suggestions are controlled by Bot API command menus, not by
+CommandHandler registration alone. Keep this file as the single source of truth
+for commands that should appear when users type "/".
+"""
+
+from __future__ import annotations
+
+import logging
+
+from telegram import (
+    BotCommand,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeDefault,
+)
+from telegram.ext import Application
+
+
+logger = logging.getLogger(__name__)
+
+
+PRIVATE_COMMANDS = [
+    BotCommand("start", "Start the bot"),
+    BotCommand("help", "Show help menu"),
+    BotCommand("ping", "Check bot latency"),
+    BotCommand("stats", "Bot statistics"),
+    BotCommand("ai", "Ask Whisky AI"),
+    BotCommand("rules", "Show group rules"),
+    BotCommand("settings", "View group settings"),
+    BotCommand("whisky", "Show bot capabilities"),
+]
+
+
+GROUP_COMMANDS = [
+    BotCommand("help", "Show help menu"),
+    BotCommand("rules", "Show group rules"),
+    BotCommand("report", "Report a user"),
+    BotCommand("admins", "List admins"),
+    BotCommand("ban", "Ban a user"),
+    BotCommand("unban", "Unban a user"),
+    BotCommand("kick", "Kick a user"),
+    BotCommand("mute", "Mute a user"),
+    BotCommand("unmute", "Unmute a user"),
+    BotCommand("tempban", "Temporarily ban a user"),
+    BotCommand("tempmute", "Temporarily mute a user"),
+    BotCommand("warn", "Warn a user"),
+    BotCommand("warns", "View warnings"),
+    BotCommand("clearwarns", "Clear warnings"),
+    BotCommand("enough", "Permanently re-ban a user"),
+    BotCommand("guardian", "Enable emergency protection"),
+    BotCommand("antispam", "Configure anti-spam"),
+    BotCommand("antilink", "Configure anti-link"),
+    BotCommand("antiflood", "Configure anti-flood"),
+    BotCommand("antiemoji", "Configure anti-emoji"),
+    BotCommand("antiraid", "Configure anti-raid"),
+    BotCommand("scan", "Scan group security"),
+    BotCommand("threatlevel", "Show threat level"),
+    BotCommand("checkalt", "Check suspicious alt risk"),
+    BotCommand("modlogs", "View moderation logs"),
+    BotCommand("modstats", "View moderation stats"),
+    BotCommand("audit", "Audit protection settings"),
+    BotCommand("settings", "View group settings"),
+    BotCommand("chatstats", "View chat statistics"),
+    BotCommand("mostactive", "Show most active users"),
+    BotCommand("whisky", "Show bot capabilities"),
+]
+
+
+DEFAULT_COMMANDS = PRIVATE_COMMANDS
+
+
+def command_names() -> set[str]:
+    """Return every command name exposed through Telegram menus."""
+    return {command.command for command in [*DEFAULT_COMMANDS, *PRIVATE_COMMANDS, *GROUP_COMMANDS]}
+
+
+async def sync_bot_commands(application: Application) -> None:
+    """Synchronize Telegram slash-command menus on every bot startup."""
+    scopes = [
+        ("default", BotCommandScopeDefault(), DEFAULT_COMMANDS),
+        ("private", BotCommandScopeAllPrivateChats(), PRIVATE_COMMANDS),
+        ("groups", BotCommandScopeAllGroupChats(), GROUP_COMMANDS),
+    ]
+
+    for scope_name, scope, commands in scopes:
+        try:
+            logger.info(
+                "Synchronizing %s Telegram command menu with %d commands: %s",
+                scope_name,
+                len(commands),
+                ", ".join(f"/{command.command}" for command in commands),
+            )
+            await application.bot.set_my_commands(commands=commands, scope=scope)
+            logger.info("Telegram command menu synchronized for %s scope", scope_name)
+        except Exception:
+            logger.exception("Failed to synchronize Telegram command menu for %s scope", scope_name)
