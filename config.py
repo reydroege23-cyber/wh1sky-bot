@@ -88,6 +88,8 @@ COMMAND_COOLDOWN = int(os.getenv("COMMAND_COOLDOWN", "1"))
 
 DATA_SAVE_BATCH_INTERVAL = int(os.getenv("DATA_SAVE_BATCH_INTERVAL", "5"))
 ENABLE_ASYNC_SAVES = os.getenv("ENABLE_ASYNC_SAVES", "true").lower() == "true"
+SINGLE_INSTANCE_LOCK = os.getenv("SINGLE_INSTANCE_LOCK", "true").lower() == "true"
+EXIT_ON_TELEGRAM_CONFLICT = os.getenv("EXIT_ON_TELEGRAM_CONFLICT", "true").lower() == "true"
 
 # =========================
 # DATA STORAGE

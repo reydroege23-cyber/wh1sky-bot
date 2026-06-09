@@ -32,6 +32,7 @@ from functools import wraps
 from config import *
 from logging_config import configure_logging
 from safe_math import CalculationError, evaluate_expression, format_decimal
+from single_instance import SingleInstanceLock
 
 configure_logging(LOG_FILE, LOG_LEVEL, LOG_FORMAT)
 logger = logging.getLogger(__name__)
@@ -3489,54 +3490,66 @@ def setup_bot():
 # =========================
 
 def run_bot_with_recovery():
-    """Run bot with automatic recovery and restart."""
+    """Run bot with automatic recovery and local duplicate-instance protection."""
     import time
-    
+
+    require_runtime_config()
     retry_count = 0
     max_retries = 5
     base_delay = 5  # seconds
-    
-    while True:
-        try:
-            logger.info("=" * 60)
-            logger.info("🥃 WHISKY_BOT - ELITE VERSION STARTING")
-            logger.info(f"👮 Admin IDs: {ADMIN_IDS}")
-            logger.info(f"🤖 AI Status: {'✅ ONLINE' if AI_AVAILABLE else '⚠️ OFFLINE'}")
-            logger.info(f"📊 Tracking {len(bot_data['stats'])} users")
-            logger.info("=" * 60)
-            
-            app = setup_bot()
-            print("\n✅ Bot is running 24/7... Press Ctrl+C to stop\n")
-            
-            retry_count = 0  # Reset retry count on successful connection
-            app.run_polling(drop_pending_updates=True)
-            
-        except KeyboardInterrupt:
-            logger.info("⛔ Bot stopped by user")
-            break
-            
-        except Exception as e:
-            error_str = str(e)
-            retry_count += 1
-            
-            # Handle "terminated by other getUpdates" - needs LONG wait for connection to fully release
-            if "terminated by other getUpdates" in error_str or "Conflict" in error_str:
-                delay = 120  # Wait 120 seconds (2 mins) for Telegram to fully release connection
-                logger.critical(f"🚨 CONNECTION CONFLICT - Telegram server still thinks another bot is running")
-                logger.warning(f"⏳ Waiting 120 seconds for Telegram to release the connection...")
-                logger.warning(f"   (This happens when bot crashes - connection takes time to timeout)")
-                logger.warning(f"   Retry attempt {retry_count}/{max_retries}")
-            else:
-                delay = min(base_delay * (2 ** retry_count), 300)  # Max 5 min delay
-            
-            logger.error(f"🔥 Error: {e}")
-            logger.error(f"⏳ Waiting {delay}s before retry...")
-            
-            if retry_count >= max_retries:
-                logger.critical(f"❌ Max retries reached. Bot failed.")
+    instance_lock = None
+
+    if SINGLE_INSTANCE_LOCK:
+        instance_lock = SingleInstanceLock(TELEGRAM_TOKEN)
+        instance_lock.acquire()
+        logger.info("Acquired local single-instance lock")
+
+    try:
+        while True:
+            try:
+                logger.info("=" * 60)
+                logger.info("WHISKY_BOT starting")
+                logger.info(f"Admin IDs: {ADMIN_IDS}")
+                logger.info(f"AI Status: {'ONLINE' if AI_AVAILABLE else 'OFFLINE'}")
+                logger.info(f"Tracking {len(bot_data['stats'])} users")
+                logger.info("=" * 60)
+
+                app = setup_bot()
+                print("\nBot is running 24/7... Press Ctrl+C to stop\n")
+
+                retry_count = 0  # Reset retry count on successful startup
+                app.run_polling(drop_pending_updates=True)
+
+            except KeyboardInterrupt:
+                logger.info("Bot stopped by user")
                 break
-            
-            time.sleep(delay)
+
+            except Exception as e:
+                error_str = str(e)
+                retry_count += 1
+
+                if "terminated by other getUpdates" in error_str or "Conflict" in error_str:
+                    logger.critical("Telegram getUpdates conflict: another bot instance is polling this token.")
+                    logger.critical("Stop the duplicate local process, hosting-panel process, or old deployment using this token.")
+                    if EXIT_ON_TELEGRAM_CONFLICT:
+                        logger.critical("Exiting because EXIT_ON_TELEGRAM_CONFLICT=true")
+                        break
+                    delay = 120
+                    logger.warning(f"Waiting {delay}s before retrying conflict; attempt {retry_count}/{max_retries}")
+                else:
+                    delay = min(base_delay * (2 ** retry_count), 300)  # Max 5 min delay
+
+                logger.error(f"Error: {e}")
+                logger.error(f"Waiting {delay}s before retry...")
+
+                if retry_count >= max_retries:
+                    logger.critical("Max retries reached. Bot failed.")
+                    break
+
+                time.sleep(delay)
+    finally:
+        if instance_lock is not None:
+            instance_lock.release()
 
 if __name__ == "__main__":
     run_bot_with_recovery()
