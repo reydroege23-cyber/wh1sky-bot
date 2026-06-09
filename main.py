@@ -34,6 +34,7 @@ from logging_config import configure_logging
 from safe_math import CalculationError, evaluate_expression, format_decimal
 from single_instance import SingleInstanceLock
 from commands.group_management import COMMANDS as GROUP_MANAGEMENT_COMMANDS
+from commands.admin_panel import COMMANDS as ADMIN_PANEL_COMMANDS, panel_callback
 from services.group_management import security_service, store as group_store
 from healthcheck import start_background as start_health_server
 from bot_commands import command_names as menu_command_names, sync_bot_commands
@@ -3525,12 +3526,16 @@ def setup_bot():
     app.add_handler(CommandHandler("aura", aura))
     app.add_handler(CommandHandler("drip", drip))
 
+    for command_name, handler in ADMIN_PANEL_COMMANDS.items():
+        app.add_handler(CommandHandler(command_name, handler))
+
     for command_name, handler in GROUP_MANAGEMENT_COMMANDS.items():
         app.add_handler(CommandHandler(command_name, handler))
 
     registered_menu_commands = menu_command_names()
     logger.info("Registered %d Telegram menu commands in code", len(registered_menu_commands))
 
+    app.add_handler(CallbackQueryHandler(panel_callback, pattern=r"^panel:"))
     app.add_handler(CallbackQueryHandler(lasthope_callback))
 
     # Enforce permanent blacklist

@@ -29,6 +29,8 @@ PRIVATE_COMMANDS = [
     BotCommand("ai", "Ask Whisky AI"),
     BotCommand("rules", "Show group rules"),
     BotCommand("settings", "View group settings"),
+    BotCommand("panel", "Open admin control panel"),
+    BotCommand("cmds", "Show all commands"),
     BotCommand("whisky", "Show bot capabilities"),
 ]
 
@@ -62,6 +64,10 @@ GROUP_COMMANDS = [
     BotCommand("modstats", "View moderation stats"),
     BotCommand("audit", "Audit protection settings"),
     BotCommand("settings", "View group settings"),
+    BotCommand("panel", "Open admin control panel"),
+    BotCommand("toggle", "Toggle protection features"),
+    BotCommand("cmds", "Show all commands"),
+    BotCommand("logs", "Show recent logs"),
     BotCommand("chatstats", "View chat statistics"),
     BotCommand("mostactive", "Show most active users"),
     BotCommand("whisky", "Show bot capabilities"),
