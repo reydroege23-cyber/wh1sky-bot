@@ -36,6 +36,9 @@ def test_marine_prompt_scopes_whisky_special_treatment_to_owner():
     assert "owner ID 8577797097" in owner_prompt
     assert "Whisky the Great" in owner_prompt
     assert "You may use the special Whisky treatment" in owner_prompt
+    assert "Kurdish wife" in owner_prompt
+    assert "Spas" in owner_prompt
+    assert "Never provide incorrect information in serious" in owner_prompt
     assert "Do not use Whisky special treatment" in regular_prompt
 
 

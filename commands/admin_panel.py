@@ -23,7 +23,8 @@ TOGGLE_KEYS = {
     "antiflood": "Anti-flood",
     "captcha": "Captcha",
     "guardian": "Guardian",
-    "ai_enabled": "AI replies",
+    "ai_enabled": "AI enabled",
+    "aireplies": "Auto AI replies",
 }
 
 PUNISHMENTS = ["mute", "ban", "kick", "warn"]
@@ -40,6 +41,8 @@ SETTING_LABELS = {
     "punishment": "Punishment",
     "log_channel": "Log channel",
     "group_language": "Language",
+    "aimode": "AI mode",
+    "ai_cooldown": "AI cooldown",
 }
 
 

@@ -23,10 +23,11 @@ from datetime import timedelta, datetime
 import logging
 import json
 from pathlib import Path
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Optional, Any, cast
 import random
 import os
+import time
 
 from functools import wraps
 from config import *
@@ -296,6 +297,9 @@ def reply_required(func):
 
 # In-memory cache for quick stats (flushed periodically)
 _stats_cache = defaultdict(lambda: {"messages": 0, "ai_queries": 0})
+AI_MEMORY: dict[tuple[int, int], deque[tuple[str, str]]] = defaultdict(lambda: deque(maxlen=8))
+AI_COOLDOWNS: dict[tuple[int, int], float] = {}
+AI_RESPONDED_MESSAGES: set[tuple[int, int]] = set()
 
 def user_tracking(func):
     """Track user statistics (batched for performance)."""
@@ -984,58 +988,23 @@ async def test_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @rate_limit(cooldown_type="ai")
 async def ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /ai command to ask Marine AI."""
-    user_id = str(update.effective_user.id)
-    
-    # Get query from arguments
     query = " ".join(context.args).strip() if context.args else ""
-    
     if not query:
         await update.message.reply_text(
-            "❓ Ask me something!\n\n"
-            "Example: `/ai What is Python?`",
-            parse_mode="Markdown"
+            "Ask me something!\n\n"
+            "Example: `/ai What is Python?`\n"
+            "Tip: reply to a message with `/ai explain this` to include that message as context.",
+            parse_mode="Markdown",
         )
         return
-    
-    typing_msg = None
-    try:
-        # Send thinking message
-        typing_msg = await update.message.reply_text("🤖 Thinking...")
-        logger.info(f"🤖 Processing AI query from {user_id}: {query[:50]}...")
-        
-        # Get AI response
-        chat_context = "private" if update.effective_chat.type == "private" else "group"
-        response = await ask_ai(query, chat_context=chat_context, is_owner=update.effective_user.id == OWNER_ID)
-        logger.info(f"🤖 Got response: {len(response)} chars")
-        
-        # Try to edit the message
-        if typing_msg:
-            try:
-                await typing_msg.edit_text(response)
-            except Exception as edit_error:
-                logger.error(f"Failed to edit message: {edit_error}")
-                # If edit fails, send as new message
-                await update.message.reply_text(response)
-        else:
-            await update.message.reply_text(response)
-        
-        # Update statistics
-        if user_id in bot_data["stats"]:
-            bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
-        logger.info(f"✅ AI query successful from {user_id}")
-        await queue_data_save()
-        
-    except Exception as e:
-        logger.error(f"❌ AI command error: {type(e).__name__}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        try:
-            if typing_msg:
-                await typing_msg.edit_text(f"❌ Error: {str(e)[:80]}")
-            else:
-                await update.message.reply_text(f"❌ Error: {str(e)[:80]}")
-        except:
-            pass
+
+    await _send_marine_ai_response(
+        update,
+        context,
+        query,
+        trigger="command",
+        enforce_auto_settings=False,
+    )
 
 # =========================
 # MESSAGE HANDLER (ENHANCED)
@@ -1144,6 +1113,173 @@ def _should_marine_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return False
 
 
+def _marine_trigger_reason(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str | None:
+    if not update.message or not update.message.text or not update.effective_chat:
+        return None
+    if update.effective_chat.type == "private":
+        return "private"
+    reply = update.message.reply_to_message
+    if reply and reply.from_user and getattr(context.bot, "id", None) == reply.from_user.id:
+        return "reply"
+    lowered = update.message.text.lower()
+    bot_username = getattr(context.bot, "username", "") or ""
+    if bot_username and f"@{bot_username.lower()}" in lowered:
+        return "mention"
+    if "marine" in lowered:
+        return "name"
+    return None
+
+
+async def _user_is_restricted(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int) -> bool:
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+    except Exception as e:
+        logger.debug("Could not check restriction state for %s in %s: %s", user_id, chat_id, e)
+        return False
+    if member.status != "restricted":
+        return False
+    return getattr(member, "can_send_messages", True) is False
+
+
+def _reply_context(update: Update) -> str:
+    reply = update.message.reply_to_message if update.message else None
+    if not reply or not getattr(reply, "text", None):
+        return ""
+    author = "Marine" if reply.from_user and getattr(reply.from_user, "is_bot", False) else "Replied user"
+    return f"Context from replied message by {author}: {reply.text[:700]}\n\n"
+
+
+def _memory_prompt(chat_id: int, user_id: int, chat_context: str) -> str:
+    memory = AI_MEMORY[(chat_id, user_id)]
+    if not memory:
+        return ""
+    limit = 6 if chat_context == "private" else 3
+    lines = []
+    for user_text, marine_text in list(memory)[-limit:]:
+        lines.append(f"User: {user_text[:300]}")
+        lines.append(f"Marine: {marine_text[:300]}")
+    return "Recent conversation memory:\n" + "\n".join(lines) + "\n\n"
+
+
+def _mode_prompt(mode: str) -> str:
+    modes = {
+        "friendly": "Tone mode: extra friendly, warm, and encouraging.",
+        "professional": "Tone mode: professional, concise, and precise.",
+        "playful": "Tone mode: playful and light, while staying helpful and accurate.",
+        "normal": "Tone mode: normal Marine personality.",
+    }
+    return modes.get(mode, modes["normal"])
+
+
+async def _send_marine_ai_response(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    user_prompt: str,
+    trigger: str,
+    enforce_auto_settings: bool = True,
+) -> bool:
+    if not update.message or not update.effective_chat or not update.effective_user:
+        return False
+    if getattr(update.effective_user, "is_bot", False):
+        logger.info("Marine ignored bot message from %s", update.effective_user.id)
+        return False
+
+    chat_id = update.effective_chat.id
+    user_id_int = update.effective_user.id
+    user_id = str(user_id_int)
+    chat_context = "private" if update.effective_chat.type == "private" else "group"
+    settings = group_store.all_settings(chat_id)
+
+    if update.effective_chat.type != "private":
+        if await _user_is_restricted(context, chat_id, user_id_int):
+            logger.info("Marine ignored restricted user %s in %s", user_id_int, chat_id)
+            return False
+        if enforce_auto_settings and not settings.get("aireplies", True):
+            logger.info("Marine AI reply skipped in %s: aireplies disabled", chat_id)
+            return False
+
+    if not settings.get("ai_enabled", True):
+        await update.message.reply_text("Marine AI replies are disabled in this chat.")
+        return True
+
+    message_key = (chat_id, update.message.message_id)
+    if message_key in AI_RESPONDED_MESSAGES:
+        logger.info("Marine skipped duplicate response for message %s in %s", update.message.message_id, chat_id)
+        return False
+
+    if update.effective_chat.type != "private":
+        cooldown_seconds = int(settings.get("ai_cooldown", 10))
+        cooldown_key = (chat_id, user_id_int)
+        now = time.monotonic()
+        remaining = cooldown_seconds - (now - AI_COOLDOWNS.get(cooldown_key, 0))
+        if remaining > 0:
+            logger.info("Marine cooldown active for %s in %s: %.1fs", user_id_int, chat_id, remaining)
+            return False
+        AI_COOLDOWNS[cooldown_key] = now
+
+    mode = str(settings.get("aimode", "normal"))
+    final_prompt = (
+        _mode_prompt(mode)
+        + "\n\n"
+        + _memory_prompt(chat_id, user_id_int, chat_context)
+        + _reply_context(update)
+        + user_prompt
+    )
+
+    typing_msg = None
+    started = time.perf_counter()
+    try:
+        typing_msg = await update.message.reply_text("Thinking...")
+        response = await ask_ai(
+            final_prompt,
+            chat_context=chat_context,
+            is_owner=user_id_int == OWNER_ID,
+        )
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        AI_MEMORY[(chat_id, user_id_int)].append((user_prompt, response))
+        AI_RESPONDED_MESSAGES.add(message_key)
+        if len(AI_RESPONDED_MESSAGES) > 5000:
+            AI_RESPONDED_MESSAGES.clear()
+        if typing_msg:
+            try:
+                await typing_msg.edit_text(response)
+            except Exception as edit_error:
+                logger.error("Failed to edit Marine AI message: %s", edit_error)
+                await update.message.reply_text(response)
+        else:
+            await update.message.reply_text(response)
+        if user_id in bot_data["stats"]:
+            bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
+        logger.info(
+            "Marine AI response trigger=%s user=%s chat=%s elapsed_ms=%.0f mode=%s",
+            trigger,
+            user_id_int,
+            chat_id,
+            elapsed_ms,
+            mode,
+        )
+        await queue_data_save()
+        return True
+    except Exception as e:
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        logger.exception(
+            "Marine AI failure trigger=%s user=%s chat=%s elapsed_ms=%.0f error=%s",
+            trigger,
+            user_id_int,
+            chat_id,
+            elapsed_ms,
+            e,
+        )
+        try:
+            if typing_msg:
+                await typing_msg.edit_text(f"Marine had trouble answering: {str(e)[:80]}")
+            else:
+                await update.message.reply_text("Marine had trouble answering. Please try again.")
+        except Exception:
+            pass
+        return True
+
+
 @user_tracking
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced message handling."""
@@ -1166,47 +1302,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         RECENT_CHAT_MESSAGES[chat_id].pop(0)
     
     try:
-        # SPEAK MODE - chat-local Marine AI replies for this group only.
-        speak_mode = group_store.get_setting(chat_id, "speak_mode", False)
-        ai_enabled = group_store.get_setting(chat_id, "ai_enabled", True)
-        if speak_mode and ai_enabled and _should_marine_reply(update, context):
-            typing_msg = None
-            try:
-                typing_msg = await update.message.reply_text("🤖 Thinking...")
-                logger.info(f"🤖 Speak mode - processing from {user_id}")
-                chat_context = "private" if update.effective_chat.type == "private" else "group"
-                response = await ask_ai(
-                    update.message.text,
-                    chat_context=chat_context,
-                    is_owner=update.effective_user.id == OWNER_ID,
-                )
-                logger.info(f"🤖 Got response: {len(response)} chars")
-                
-                if typing_msg:
-                    try:
-                        await typing_msg.edit_text(response)
-                    except Exception as edit_error:
-                        logger.error(f"Failed to edit speak mode message: {edit_error}")
-                        await update.message.reply_text(response)
-                else:
-                    await update.message.reply_text(response)
-                
-                if user_id in bot_data["stats"]:
-                    bot_data["stats"][user_id]["ai_queries"] = bot_data["stats"][user_id].get("ai_queries", 0) + 1
-                logger.info(f"✅ Speak mode - AI response to {user_id}")
-                await queue_data_save()  # Queue instead of immediate save
-                return
-            except Exception as e:
-                logger.error(f"❌ Speak mode error: {type(e).__name__}: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-                try:
-                    if typing_msg:
-                        await typing_msg.edit_text(f"❌ AI Error: {str(e)[:80]}")
-                    else:
-                        await update.message.reply_text(f"❌ AI Error: {str(e)[:80]}")
-                except:
-                    pass
+        trigger = _marine_trigger_reason(update, context)
+        if trigger and await _send_marine_ai_response(
+            update,
+            context,
+            update.message.text,
+            trigger=trigger,
+            enforce_auto_settings=True,
+        ):
+            return
         
         # NSFW FILTER
         if ENABLE_AUTO_MODERATION:

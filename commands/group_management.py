@@ -284,6 +284,43 @@ async def captcha(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await toggle_setting(update, context, "captcha")
 
 
+async def aireplies(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await toggle_setting(update, context, "aireplies")
+
+
+async def aimode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    modes = {"normal", "friendly", "professional", "playful"}
+    chat_id = _chat_id(update)
+    if not context.args:
+        await update.message.reply_text(f"aimode: {store.get_setting(chat_id, 'aimode', 'normal')}")
+        return
+    mode = context.args[0].lower()
+    if mode not in modes:
+        await update.message.reply_text("Usage: /aimode <normal|friendly|professional|playful>")
+        return
+    store.set_setting(chat_id, "aimode", mode)
+    store.log_action(chat_id, _actor_id(update), "set_aimode", reason=mode)
+    await update.message.reply_text(f"AI mode set to {mode}.")
+
+
+async def aicooldown(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    chat_id = _chat_id(update)
+    if not context.args:
+        await update.message.reply_text(f"aicooldown: {store.get_setting(chat_id, 'ai_cooldown', 10)} seconds")
+        return
+    if not context.args[0].isdigit():
+        await update.message.reply_text("Usage: /aicooldown <seconds>")
+        return
+    seconds = max(0, min(3600, int(context.args[0])))
+    store.set_setting(chat_id, "ai_cooldown", seconds)
+    store.log_action(chat_id, _actor_id(update), "set_ai_cooldown", reason=str(seconds))
+    await update.message.reply_text(f"AI reply cooldown set to {seconds} seconds.")
+
+
 async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_admin(update, context):
         return
@@ -623,6 +660,9 @@ COMMANDS: dict[str, Any] = {
     "antiemoji": antiemoji,
     "antiraid": antiraid,
     "captcha": captcha,
+    "aireplies": aireplies,
+    "aimode": aimode,
+    "aicooldown": aicooldown,
     "verify": verify,
     "unverify": unverify,
     "scan": scan,
