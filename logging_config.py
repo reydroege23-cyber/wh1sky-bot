@@ -29,6 +29,11 @@ def configure_logging(log_file: str, level: str = "INFO", fmt: str | None = None
     log_level = getattr(logging, str(level).upper(), logging.INFO)
     log_format = fmt or "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
     root = logging.getLogger()
     root.setLevel(log_level)
 
