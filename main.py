@@ -121,9 +121,9 @@ async def _delayed_flush():
 # =========================
 # ERROR ALERT RATE LIMITING
 # =========================
-# Prevent owner spam: max 1 alert per error type per 10 minutes
+# Prevent owner spam: max 1 alert per error type per 30 minutes (if enabled)
 _owner_alert_timestamps: dict[str, float] = {}
-OWNER_ALERT_COOLDOWN = 600  # 10 minutes in seconds
+OWNER_ALERT_COOLDOWN = 1800  # 30 minutes in seconds
 
 
 def _should_alert_owner(error_type: str) -> bool:
@@ -2062,6 +2062,40 @@ async def foreverbans(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Foreverbans error: {e}")
         await update.message.reply_text("❌ Failed to fetch permanently banned users")
 
+@owner_only
+async def errornotifications(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Control automatic error notifications.
+    
+    Usage: /errornotifications on|off
+    Default: OFF (Marine operates silently)
+    
+    - ON: Owner receives error alerts (max 1 per error type per 30 minutes)
+    - OFF: All errors logged locally only, no Telegram messages
+    """
+    if not context.args or context.args[0].lower() not in ["on", "off"]:
+        enabled = group_store.get_setting(OWNER_ID, "error_notifications_enabled", False) if hasattr(group_store, 'get_setting') else False
+        status = "✅ ON" if enabled else "❌ OFF (default)"
+        await update.message.reply_text(
+            f"**Error Notifications Status:** {status}\n\n"
+            f"Usage: `/errornotifications on` or `/errornotifications off`\n\n"
+            f"- **ON**: You receive error alerts (max 1 per error type per 30 min)\n"
+            f"- **OFF**: All errors logged locally, no Telegram messages",
+            parse_mode="Markdown"
+        )
+        return
+    
+    setting = context.args[0].lower() == "on"
+    
+    try:
+        if hasattr(group_store, 'set_setting'):
+            group_store.set_setting(OWNER_ID, "error_notifications_enabled", setting)
+        status = "✅ ON" if setting else "❌ OFF"
+        await update.message.reply_text(f"Error notifications: {status}")
+        logger.info(f"Owner set error_notifications_enabled = {setting}")
+    except Exception as e:
+        logger.error(f"Failed to set error notifications: {e}")
+        await update.message.reply_text("❌ Failed to update setting")
+
 async def enforce_forever_ban(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE, reason: str):
     """Ban a user immediately if they are on the permanent blacklist."""
     if user_id not in bot_data.get("forever_banned", []):
@@ -3842,13 +3876,35 @@ async def drip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 
 async def _notify_owner_of_error(context: ContextTypes.DEFAULT_TYPE, error_msg: str, chat_id: int | None = None, user_id: int | None = None, error_type: str = "generic") -> None:
-    """Notify owner privately about an error in a group (silent, owner-only, rate-limited)."""
+    """Log error locally only. NO TELEGRAM MESSAGES.
+    
+    Error notifications are DISABLED by default.
+    They can only be enabled by the owner with /errornotifications on
+    and only alert the owner (never groups/channels/other users).
+    """
     try:
+        # Check if error notifications are enabled in database
+        error_notif_enabled = group_store.get_setting(OWNER_ID, "error_notifications_enabled", False) if hasattr(group_store, 'get_setting') else False
+        
+        # Log the error (always)
+        location_str = ""
+        if chat_id is not None:
+            location_str = f" | Chat: {chat_id}"
+        if user_id is not None:
+            location_str += f" | User: {user_id}"
+        logger.warning(f"Error [{error_type}]{location_str}: {error_msg[:200]}")
+        
+        # ONLY send Telegram message if explicitly enabled by owner
+        if not error_notif_enabled:
+            logger.debug(f"Error notifications disabled - not sending Telegram message")
+            return
+        
         # Rate limit: only alert if enough time has passed for this error type
         if not _should_alert_owner(error_type):
             logger.debug(f"Skipping owner alert for {error_type} (rate limited)")
             return
         
+        # Only notify owner ID, never anyone else
         location_info = ""
         if chat_id is not None:
             location_info = f"\n📍 Chat ID: {chat_id}"
@@ -3858,7 +3914,7 @@ async def _notify_owner_of_error(context: ContextTypes.DEFAULT_TYPE, error_msg: 
         notification = f"⚠️ Marine error detected{location_info}\n\n{error_msg[:200]}"
         await context.bot.send_message(chat_id=OWNER_ID, text=notification)
     except Exception as e:
-        logger.error(f"Failed to notify owner of error: {e}")
+        logger.error(f"Failed to log/notify error: {e}")
 
 
 async def error_handler(update: Update | object, context: ContextTypes.DEFAULT_TYPE):
@@ -3972,6 +4028,7 @@ def setup_bot():
     app.add_handler(CommandHandler("foreverban", foreverban))
     app.add_handler(CommandHandler("foreverunban", foreverunban))
     app.add_handler(CommandHandler("foreverbans", foreverbans))
+    app.add_handler(CommandHandler("errornotifications", errornotifications))
     app.add_handler(CommandHandler("info", user_info))
     app.add_handler(CommandHandler("admins", admins))
     app.add_handler(CommandHandler("debug_warns", debug_warns))
