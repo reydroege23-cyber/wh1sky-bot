@@ -118,6 +118,24 @@ async def _delayed_flush():
     except Exception as e:
         logger.error(f"❌ Error in delayed flush: {e}")
 
+# =========================
+# ERROR ALERT RATE LIMITING
+# =========================
+# Prevent owner spam: max 1 alert per error type per 10 minutes
+_owner_alert_timestamps: dict[str, float] = {}
+OWNER_ALERT_COOLDOWN = 600  # 10 minutes in seconds
+
+
+def _should_alert_owner(error_type: str) -> bool:
+    """Check if enough time has passed to alert owner for this error type."""
+    current_time = time.time()
+    last_alert = _owner_alert_timestamps.get(error_type, 0)
+    
+    if current_time - last_alert >= OWNER_ALERT_COOLDOWN:
+        _owner_alert_timestamps[error_type] = current_time
+        return True
+    return False
+
 
 async def queue_data_save():
     """Mark data as pending and schedule a background flush.
@@ -513,12 +531,17 @@ async def ask_ai(message: str, chat_context: str = "group", is_owner: bool = Fal
             logger.error("❌ Empty response from OpenRouter API")
             return "❌ AI returned empty response. Try again."
         
+        # Safe list indexing: check if choices is empty
+        if not response.choices:
+            logger.warning("AI choices list is empty")
+            raise ValueError("AI returned empty choices list")
+        
         text = response.choices[0].message.content.strip()
         
         # Check if text is empty
         if not text:
-            logger.error("❌ AI returned empty text")
-            return "❌ AI returned empty response. Try again."
+            logger.warning("AI returned empty text content")
+            raise ValueError("AI returned empty text")
         
         # Truncate to max length
         text = text[:MAX_RESPONSE_LENGTH]
@@ -718,7 +741,7 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id_ping = _safe_chat_id(update)
         is_group_ping = chat_id_ping is not None and int(chat_id_ping) < 0
         if is_group_ping:
-            await _notify_owner_of_error(context, f"Ping error: {str(e)[:100]}", chat_id=chat_id_ping)
+            await _notify_owner_of_error(context, f"Ping error: {str(e)[:100]}", chat_id=chat_id_ping, error_type="ping")
 
 # =========================
 # UPDATE COMMAND
@@ -791,7 +814,7 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id_upd = _safe_chat_id(update)
         is_group_upd = chat_id_upd is not None and int(chat_id_upd) < 0
         if is_group_upd:
-            await _notify_owner_of_error(context, f"Update command error: {str(e)[:100]}", chat_id=chat_id_upd)
+            await _notify_owner_of_error(context, f"Update command error: {str(e)[:100]}", chat_id=chat_id_upd, error_type="update")
 
 # =========================
 # LAST HOPE COMMANDS
@@ -1092,7 +1115,7 @@ async def test_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id_test = _safe_chat_id(update)
         is_group_test = chat_id_test is not None and int(chat_id_test) < 0
         if is_group_test:
-            await _notify_owner_of_error(context, f"AI test failed: {str(e)[:100]}", chat_id=chat_id_test)
+            await _notify_owner_of_error(context, f"AI test failed: {str(e)[:100]}", chat_id=chat_id_test, error_type="ai_test")
 
 # =========================
 # AI COMMAND
@@ -1438,7 +1461,7 @@ async def _send_marine_ai_response(
         # Notify owner privately if this is a group
         is_group = chat_id is not None and int(chat_id) < 0
         if is_group:
-            await _notify_owner_of_error(context, f"Marine AI failure: {str(e)[:100]}", chat_id=chat_id, user_id=user_id_int)
+            await _notify_owner_of_error(context, f"Marine AI failure: {str(e)[:100]}", chat_id=chat_id, user_id=user_id_int, error_type="marine_ai")
         
         # Delete typing indicator if it exists
         try:
@@ -1450,10 +1473,48 @@ async def _send_marine_ai_response(
         return True
 
 
+# =========================
+# SAFE STICKER & MEDIA HANDLING
+# =========================
+
+async def handle_sticker_safely(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Safely handle stickers and animated/video stickers without crashes.
+    
+    Returns:
+        True if sticker was processed, False otherwise.
+    """
+    if not update.message or not update.message.sticker:
+        return False
+    
+    try:
+        sticker = update.message.sticker
+        user_id = update.effective_user.id if update.effective_user else None
+        
+        # Skip animated and video stickers (can't analyze them safely)
+        if sticker.is_animated or sticker.is_video:
+            logger.debug(f"Skipping animated/video sticker from user {user_id} safely")
+            return True
+        
+        # Static stickers pass through silently
+        logger.debug(f"Static sticker from user {user_id}")
+        return True
+        
+    except AttributeError as e:
+        logger.debug(f"Sticker attribute error (expected for some sticker types): {e}")
+        return True
+    except Exception as e:
+        logger.debug(f"Sticker handling error: {e}")
+        # Don't alert owner for sticker errors - they're normal
+        return True
+
+
 @user_tracking
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced message handling."""
     if not update.message or not update.message.text or not update.effective_chat or not update.effective_user:
+        # Try to handle stickers safely
+        if update.message and update.message.sticker:
+            await handle_sticker_safely(update, context)
         return
     if getattr(update.effective_user, "is_bot", False):
         logger.info("Ignoring bot message from %s in chat %s", update.effective_user.id, update.effective_chat.id)
@@ -1529,7 +1590,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id_inner = _safe_chat_id(update)
                 is_group_inner = chat_id_inner is not None and int(chat_id_inner) < 0
                 if is_group_inner:
-                    await _notify_owner_of_error(context, f"AI handler error: {str(e)[:100]}", chat_id=chat_id_inner)
+                    await _notify_owner_of_error(context, f"AI handler error: {str(e)[:100]}", chat_id=chat_id_inner, error_type="ai_handler")
             
         await queue_data_save()  # Queue instead of immediate save
             
@@ -1540,7 +1601,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = _safe_user_id(update)
         is_group = chat_id is not None and int(chat_id) < 0
         if is_group:
-            await _notify_owner_of_error(context, f"Message handler error: {str(e)[:100]}", chat_id=chat_id, user_id=user_id)
+            await _notify_owner_of_error(context, f"Message handler error: {str(e)[:100]}", chat_id=chat_id, user_id=user_id, error_type="message_handler")
 
 # =========================
 # HELPER FUNCTION FOR ADMIN COMMANDS
@@ -1700,7 +1761,7 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id_ban = _safe_chat_id(update)
                 is_group_ban = chat_id_ban is not None and int(chat_id_ban) < 0
                 if is_group_ban:
-                    await _notify_owner_of_error(context, f"Ban failed for {username}: {str(ban_error)[:100]}", chat_id=chat_id_ban, user_id=user_id)
+                    await _notify_owner_of_error(context, f"Ban failed for {username}: {str(ban_error)[:100]}", chat_id=chat_id_ban, user_id=user_id, error_type="ban")
         
     except Exception as e:
         logger.error(f"❌ CRITICAL ERROR in warn(): {e}", exc_info=True)
@@ -1709,7 +1770,7 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = _safe_user_id(update)
         is_group = chat_id is not None and int(chat_id) < 0
         if is_group:
-            await _notify_owner_of_error(context, f"Warn command error: {str(e)[:100]}", chat_id=chat_id, user_id=user_id)
+            await _notify_owner_of_error(context, f"Warn command error: {str(e)[:100]}", chat_id=chat_id, user_id=user_id, error_type="warn")
 @admin_only
 async def check_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Check warnings."""
@@ -1785,7 +1846,7 @@ async def mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id_mute = _safe_chat_id(update)
         is_group_mute = chat_id_mute is not None and int(chat_id_mute) < 0
         if is_group_mute:
-            await _notify_owner_of_error(context, f"Mute error: {str(e)[:100]}", chat_id=chat_id_mute)
+            await _notify_owner_of_error(context, f"Mute error: {str(e)[:100]}", chat_id=chat_id_mute, error_type="mute")
 
 @admin_only
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1847,7 +1908,7 @@ async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id_kick = _safe_chat_id(update)
         is_group_kick = chat_id_kick is not None and int(chat_id_kick) < 0
         if is_group_kick:
-            await _notify_owner_of_error(context, f"Kick error: {str(e)[:100]}", chat_id=chat_id_kick)
+            await _notify_owner_of_error(context, f"Kick error: {str(e)[:100]}", chat_id=chat_id_kick, error_type="kick")
 
 @admin_only
 async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1876,7 +1937,7 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id_ban = _safe_chat_id(update)
         is_group_ban = chat_id_ban is not None and int(chat_id_ban) < 0
         if is_group_ban:
-            await _notify_owner_of_error(context, f"Ban error: {str(e)[:100]}", chat_id=chat_id_ban)
+            await _notify_owner_of_error(context, f"Ban error: {str(e)[:100]}", chat_id=chat_id_ban, error_type="ban")
 
 @admin_only
 async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1902,7 +1963,7 @@ async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id_unban = _safe_chat_id(update)
         is_group_unban = chat_id_unban is not None and int(chat_id_unban) < 0
         if is_group_unban:
-            await _notify_owner_of_error(context, f"Unban error: {str(e)[:100]}", chat_id=chat_id_unban)
+            await _notify_owner_of_error(context, f"Unban error: {str(e)[:100]}", chat_id=chat_id_unban, error_type="unban")
 
 @owner_only
 async def foreverban(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1941,7 +2002,7 @@ async def foreverban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id_fb = _safe_chat_id(update)
         is_group_fb = chat_id_fb is not None and int(chat_id_fb) < 0
         if is_group_fb:
-            await _notify_owner_of_error(context, f"Foreverban error: {str(e)[:100]}", chat_id=chat_id_fb)
+            await _notify_owner_of_error(context, f"Foreverban error: {str(e)[:100]}", chat_id=chat_id_fb, error_type="foreverban")
 
 @owner_only
 async def foreverunban(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2167,7 +2228,7 @@ Warnings: {warns}/{MAX_WARNINGS}
         chat_id = _safe_chat_id(update)
         is_group = chat_id is not None and int(chat_id) < 0
         if is_group:
-            await _notify_owner_of_error(context, f"User info error: {str(e)[:100]}", chat_id=chat_id)
+            await _notify_owner_of_error(context, f"User info error: {str(e)[:100]}", chat_id=chat_id, error_type="user_info")
 
 @admin_only
 async def admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2199,7 +2260,7 @@ async def debug_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = _safe_chat_id(update)
         is_group = chat_id is not None and int(chat_id) < 0
         if is_group:
-            await _notify_owner_of_error(context, f"Debug warns error: {str(e)[:100]}", chat_id=chat_id)
+            await _notify_owner_of_error(context, f"Debug warns error: {str(e)[:100]}", chat_id=chat_id, error_type="debug_warns")
 
 @user_tracking
 async def roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2547,7 +2608,7 @@ async def guess_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = _safe_chat_id(update)
         is_group = chat_id is not None and int(chat_id) < 0
         if is_group:
-            await _notify_owner_of_error(context, f"Guess game error: {str(e)[:100]}", chat_id=chat_id)
+            await _notify_owner_of_error(context, f"Guess game error: {str(e)[:100]}", chat_id=chat_id, error_type="guess_game")
 
 @user_tracking
 async def user_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3376,7 +3437,7 @@ async def iq_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = _safe_chat_id(update)
         is_group = chat_id is not None and int(chat_id) < 0
         if is_group:
-            await _notify_owner_of_error(context, f"IQ check error: {str(e)[:100]}", chat_id=chat_id)
+            await _notify_owner_of_error(context, f"IQ check error: {str(e)[:100]}", chat_id=chat_id, error_type="iq_check")
 
 @user_tracking
 async def gayrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3774,15 +3835,20 @@ async def drip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = _safe_chat_id(update)
         is_group = chat_id is not None and int(chat_id) < 0
         if is_group:
-            await _notify_owner_of_error(context, f"Drip check error: {str(e)[:100]}", chat_id=chat_id)
+            await _notify_owner_of_error(context, f"Drip check error: {str(e)[:100]}", chat_id=chat_id, error_type="drip_check")
 
 # =========================
 # ERROR HANDLER & HELPERS
 # =========================
 
-async def _notify_owner_of_error(context: ContextTypes.DEFAULT_TYPE, error_msg: str, chat_id: int | None = None, user_id: int | None = None) -> None:
-    """Notify owner privately about an error in a group (silent, owner-only)."""
+async def _notify_owner_of_error(context: ContextTypes.DEFAULT_TYPE, error_msg: str, chat_id: int | None = None, user_id: int | None = None, error_type: str = "generic") -> None:
+    """Notify owner privately about an error in a group (silent, owner-only, rate-limited)."""
     try:
+        # Rate limit: only alert if enough time has passed for this error type
+        if not _should_alert_owner(error_type):
+            logger.debug(f"Skipping owner alert for {error_type} (rate limited)")
+            return
+        
         location_info = ""
         if chat_id is not None:
             location_info = f"\n📍 Chat ID: {chat_id}"
@@ -3844,11 +3910,11 @@ async def error_handler(update: Update | object, context: ContextTypes.DEFAULT_T
     # NEVER show error message to users in groups
     # Only notify owner privately if this was a group error
     if is_group_chat:
-        await _notify_owner_of_error(context, str(error)[:300], chat_id=chat_id, user_id=user_id)
+        await _notify_owner_of_error(context, str(error)[:300], chat_id=chat_id, user_id=user_id, error_type="error_handler")
     elif hasattr(update, 'message') and getattr(update, 'message', None) is not None:
         # Private chat: also silent (owner can check logs)
         try:
-            await _notify_owner_of_error(context, str(error)[:300], chat_id=chat_id, user_id=user_id)
+            await _notify_owner_of_error(context, str(error)[:300], chat_id=chat_id, user_id=user_id, error_type="error_handler")
         except Exception:
             pass
 

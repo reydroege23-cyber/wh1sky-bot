@@ -50,18 +50,30 @@ async def ask_gemini(prompt: str, chat_context: str = "group", is_owner: bool = 
             timeout=AI_TIMEOUT
         )
         
-        # Extract text from response
+        # Extract text from response - SAFE WITH CHECKS
+        if not response:
+            logger.warning("AI response is None")
+            raise ValueError("Empty response from AI")
+        
+        if not response.choices:
+            logger.warning("AI choices list is empty")
+            raise ValueError("AI returned empty choices")
+        
         text = response.choices[0].message.content.strip()[:MAX_RESPONSE_LENGTH]
+        
+        if not text:
+            logger.warning("AI message content is empty")
+            raise ValueError("AI returned empty message")
         
         logger.info(f"AI query successful: {len(text)} chars")
         return text
         
     except asyncio.TimeoutError:
         logger.error("AI request timed out")
-        return "❌ AI request timed out. Please try again."
+        raise
     except Exception as e:
-        logger.error(f"AI Error: {type(e).__name__}: {e}")
-        return f"❌ AI Error: {str(e)[:100]}"
+        logger.exception("AI Error", exc_info=True)
+        raise
 
 
 def format_stats_message(stats: dict, user_warnings: int, max_warnings: int) -> str:
