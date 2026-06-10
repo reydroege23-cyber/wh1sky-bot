@@ -18,6 +18,43 @@ def test_settings_logs_and_permanent_bans(tmp_path: Path):
     assert not store.is_permanently_banned(1, 99)
 
 
+def test_known_users_resolve_by_chat_then_global(tmp_path: Path):
+    store = GroupStore(tmp_path / "group.db")
+
+    local_user = type(
+        "User",
+        (),
+        {"id": 42, "username": "LocalName", "first_name": "Local", "last_name": "User", "full_name": "Local User"},
+    )()
+    global_user = type(
+        "User",
+        (),
+        {"id": 99, "username": "GlobalName", "first_name": "Global", "last_name": "User", "full_name": "Global User"},
+    )()
+
+    store.record_user(-1001, local_user, increment_messages=True)
+    store.record_user(-2002, global_user)
+
+    assert store.resolve_known_user(-1001, "@localname").user_id == 42
+    assert store.resolve_known_user(-1001, "globalname").user_id == 99
+    assert store.resolve_known_user(-1001, "missing") is None
+
+    rows = store.known_users(-1001)
+    assert rows[0]["user_id"] == 42
+    assert rows[0]["message_count"] == 1
+
+
+def test_whitelist_is_chat_scoped(tmp_path: Path):
+    store = GroupStore(tmp_path / "group.db")
+    store.add_whitelist(-1001, 42, 1)
+
+    assert store.is_whitelisted(-1001, 42) is True
+    assert store.is_whitelisted(-1002, 42) is False
+
+    store.remove_whitelist(-1001, 42, 1)
+    assert store.is_whitelisted(-1001, 42) is False
+
+
 def test_security_service_scores_alt_risk(tmp_path: Path):
     store = GroupStore(tmp_path / "group.db")
     security = SecurityService(store)
@@ -67,6 +104,32 @@ def test_antilink_scanning_is_chat_scoped(tmp_path: Path):
 
     assert "link_spam" in security.inspect_message(-1001, 42, "https://example.com")
     assert "link_spam" not in security.inspect_message(-1002, 42, "https://example.com")
+
+
+def test_antilink_detects_entities_and_common_link_forms(tmp_path: Path):
+    store = GroupStore(tmp_path / "group.db")
+    store.set_setting(-1001, "antilink", True)
+    security = SecurityService(store)
+
+    entity = type("Entity", (), {"type": "text_link", "url": "https://hidden.example"})()
+
+    assert "link_spam" in security.inspect_message(-1001, 42, "www.example.com")
+    assert "link_spam" in security.inspect_message(-1001, 43, "join telegram.me/test")
+    assert "link_spam" in security.inspect_message(-1001, 44, "hidden", entities=[entity])
+
+
+def test_caps_spam_and_guardian_stricter_flood_threshold(tmp_path: Path):
+    store = GroupStore(tmp_path / "group.db")
+    security = SecurityService(store)
+
+    assert "caps_spam" in security.inspect_message(-1001, 42, "THIS IS VERY LOUD SPAM")
+
+    store.set_setting(-1002, "guardian", True)
+    store.set_setting(-1002, "spam_threshold", 5)
+    findings = []
+    for index in range(3):
+        findings = security.inspect_message(-1002, 43, f"fast {index}")
+    assert "flood" in findings
 
 
 def test_antispam_and_antiraid_can_be_disabled_per_chat(tmp_path: Path):

@@ -32,6 +32,13 @@ PRIVATE_COMMANDS = [
     BotCommand("exportsettings", "Export this chat settings"),
     BotCommand("importsettings", "Import this chat settings"),
     BotCommand("panel", "Open Marine admin panel"),
+    BotCommand("ownerpanel", "Open Marine owner panel"),
+    BotCommand("groups", "List tracked groups"),
+    BotCommand("globalsettings", "View global owner settings"),
+    BotCommand("editpersonality", "Edit Marine personality"),
+    BotCommand("backupdb", "Back up Marine database"),
+    BotCommand("errors", "Show redacted error logs"),
+    BotCommand("maintenance", "Toggle maintenance mode"),
     BotCommand("cmds", "Show all commands"),
     BotCommand("marine", "Show Marine capabilities"),
 ]
@@ -64,6 +71,9 @@ GROUP_COMMANDS = [
     BotCommand("antiflood", "Configure anti-flood"),
     BotCommand("antiemoji", "Configure anti-emoji"),
     BotCommand("antiraid", "Configure anti-raid"),
+    BotCommand("silentperms", "Toggle silent permission mode"),
+    BotCommand("whitelist", "Whitelist a trusted user"),
+    BotCommand("unwhitelist", "Remove a user from whitelist"),
     BotCommand("scan", "Scan group security"),
     BotCommand("security", "Show security status"),
     BotCommand("testsecurity", "Test security scanner"),
@@ -86,6 +96,8 @@ GROUP_COMMANDS = [
     BotCommand("logs", "Show recent logs"),
     BotCommand("chatstats", "View chat statistics"),
     BotCommand("mostactive", "Show most active users"),
+    BotCommand("knownusers", "Show tracked users"),
+    BotCommand("finduser", "Find a tracked user"),
     BotCommand("marine", "Show Marine capabilities"),
 ]
 

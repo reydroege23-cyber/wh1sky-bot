@@ -18,22 +18,66 @@ import logging
 from telegram import Update
 from telegram.ext import ContextTypes
 from functools import wraps
-from config import OWNER_ID
+from config import OWNER_ID, SILENT_PERMISSION_MODE
 from economy import Economy
+from services.group_management import store
 
 logger = logging.getLogger(__name__)
+
+
+def _chat_id(update: Update) -> int:
+    return int(update.effective_chat.id) if update.effective_chat else 0
+
+
+def _actor_id(update: Update) -> int | None:
+    return int(update.effective_user.id) if update.effective_user else None
+
+
+def _command_text(update: Update) -> str:
+    if update.message:
+        return str(getattr(update.message, "text", "") or "").split(maxsplit=1)[0]
+    return "unknown"
+
+
+def _silent_permission_mode(update: Update) -> bool:
+    try:
+        return bool(store.get_setting(_chat_id(update), "silent_permission_mode", SILENT_PERMISSION_MODE))
+    except Exception:
+        return SILENT_PERMISSION_MODE
+
+
+async def _log_unauthorized(update: Update, command: str) -> None:
+    user = update.effective_user
+    user_id = _actor_id(update)
+    username = getattr(user, "username", None) or getattr(user, "full_name", None) or "unknown"
+    reason = f"required=owner; username={username}; command={command}"
+    logger.warning(
+        "Unauthorized economy admin attempt user=%s username=%s chat=%s command=%s",
+        user_id,
+        username,
+        _chat_id(update),
+        command,
+    )
+    try:
+        store.log_action(_chat_id(update), user_id, "unauthorized_command", reason=reason)
+    except Exception as exc:
+        logger.debug("Failed to persist unauthorized economy attempt: %s", exc)
+
+
+async def _deny_if_not_owner(update: Update) -> bool:
+    if _actor_id(update) == OWNER_ID:
+        return False
+    await _log_unauthorized(update, _command_text(update))
+    if update.message and not _silent_permission_mode(update):
+        await update.message.reply_text("You don't have permission to use this command.")
+    return True
 
 def owner_only(func):
     """Decorator to restrict commands to owner only."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_id = update.effective_user.id
-        
-        if user_id != OWNER_ID:
-            logger.warning(f"🚫 Unauthorized economy admin access by {user_id}")
-            await update.message.reply_text("❌ You are not authorized to use this command.")
+        if await _deny_if_not_owner(update):
             return
-        
         return await func(update, context)
     return wrapper
 
@@ -92,9 +136,7 @@ async def addcoins(update: Update, context: ContextTypes.DEFAULT_TYPE, economy: 
     user = update.effective_user
     
     # Check authorization
-    if user.id != OWNER_ID:
-        await update.message.reply_text("❌ You are not authorized to use this command.")
-        logger.warning(f"🚫 Unauthorized /addcoins attempt by {user.id}")
+    if await _deny_if_not_owner(update):
         return
     
     # Resolve target user
@@ -145,9 +187,7 @@ async def removecoins(update: Update, context: ContextTypes.DEFAULT_TYPE, econom
     user = update.effective_user
     
     # Check authorization
-    if user.id != OWNER_ID:
-        await update.message.reply_text("❌ You are not authorized to use this command.")
-        logger.warning(f"🚫 Unauthorized /removecoins attempt by {user.id}")
+    if await _deny_if_not_owner(update):
         return
     
     # Resolve target user
@@ -202,9 +242,7 @@ async def setcoins(update: Update, context: ContextTypes.DEFAULT_TYPE, economy: 
     user = update.effective_user
     
     # Check authorization
-    if user.id != OWNER_ID:
-        await update.message.reply_text("❌ You are not authorized to use this command.")
-        logger.warning(f"🚫 Unauthorized /setcoins attempt by {user.id}")
+    if await _deny_if_not_owner(update):
         return
     
     # Resolve target user

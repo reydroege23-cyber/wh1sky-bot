@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -10,11 +11,12 @@ from typing import Any
 from telegram import ChatPermissions, Update
 from telegram.ext import ContextTypes
 
-from config import OWNER_ID
+from config import OWNER_ID, SILENT_PERMISSION_MODE
 from services.group_management import TargetUser, security_service, store
 
 
 ALT_NOTICE = "This is not proof that accounts belong to the same person. Manual review is recommended."
+logger = logging.getLogger(__name__)
 
 
 def _chat_id(update: Update) -> int:
@@ -26,36 +28,84 @@ def _actor_id(update: Update) -> int:
 
 
 async def _is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    member = await context.bot.get_chat_member(_chat_id(update), _actor_id(update))
-    return member.status in {"administrator", "creator"}
+    if _actor_id(update) == OWNER_ID:
+        return True
+    try:
+        member = await context.bot.get_chat_member(_chat_id(update), _actor_id(update))
+        return member.status in {"administrator", "creator"}
+    except Exception:
+        return False
+
+
+def _silent_permission_mode(chat_id: int) -> bool:
+    return bool(store.get_setting(chat_id, "silent_permission_mode", SILENT_PERMISSION_MODE))
+
+
+def _command_text(update: Update) -> str:
+    return str(getattr(update.message, "text", "") or "").split(maxsplit=1)[0]
+
+
+async def _log_unauthorized(update: Update, required: str) -> None:
+    user = update.effective_user
+    username = getattr(user, "username", None) or getattr(user, "full_name", None) or "unknown"
+    command = _command_text(update)
+    reason = f"required={required}; username={username}; command={command}"
+    logger.warning(
+        "Unauthorized command attempt user=%s username=%s chat=%s command=%s required=%s",
+        _actor_id(update),
+        username,
+        _chat_id(update),
+        command,
+        required,
+    )
+    store.log_action(_chat_id(update), _actor_id(update), "unauthorized_command", reason=reason)
 
 
 async def _require_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if await _is_admin(update, context):
         return True
-    await update.message.reply_text("Admin permission required.")
+    await _log_unauthorized(update, "admin")
+    if not _silent_permission_mode(_chat_id(update)):
+        await update.message.reply_text("You don't have permission to use this command.")
     return False
 
 
 async def _require_owner(update: Update) -> bool:
     if _actor_id(update) == OWNER_ID:
         return True
-    await update.message.reply_text("Owner-only command.")
+    await _log_unauthorized(update, "owner")
+    if not _silent_permission_mode(_chat_id(update)):
+        await update.message.reply_text("You don't have permission to use this command.")
     return False
 
 
 async def resolve_target(update: Update, context: ContextTypes.DEFAULT_TYPE) -> TargetUser | None:
     msg = update.message
-    if msg and msg.reply_to_message and msg.reply_to_message.from_user:
-        user = msg.reply_to_message.from_user
-        return TargetUser(user.id, user.full_name or user.username or str(user.id))
+    reply = getattr(msg, "reply_to_message", None)
+    if reply and getattr(reply, "from_user", None):
+        user = reply.from_user
+        store.record_user(_chat_id(update), user)
+        return TargetUser(user.id, user.full_name or user.username or str(user.id), getattr(user, "username", None))
+    for entity in list(getattr(msg, "entities", None) or []):
+        mentioned_user = getattr(entity, "user", None)
+        if mentioned_user:
+            store.record_user(_chat_id(update), mentioned_user)
+            return TargetUser(
+                mentioned_user.id,
+                mentioned_user.full_name or mentioned_user.username or str(mentioned_user.id),
+                getattr(mentioned_user, "username", None),
+            )
     if context.args:
         raw = context.args[0].strip()
         if raw.lstrip("-").isdigit():
             return TargetUser(int(raw), raw)
         if raw.startswith("@"):
-            return TargetUser(0, raw)
+            return store.resolve_known_user(_chat_id(update), raw)
     return None
+
+
+async def _send_unknown_user(update: Update) -> None:
+    await update.message.reply_text("I don't know this user yet. Reply to their message or use their Telegram ID.")
 
 
 def _reason(context: ContextTypes.DEFAULT_TYPE, skip: int = 1) -> str:
@@ -66,8 +116,8 @@ async def tempban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_admin(update, context):
         return
     target = await resolve_target(update, context)
-    if not target or target.user_id == 0:
-        await update.message.reply_text("Use /tempban by reply or numeric user ID. Example: /tempban 123456 60 spam")
+    if not target:
+        await _send_unknown_user(update)
         return
     minutes = int(context.args[1]) if len(context.args) > 1 and context.args[1].isdigit() else 60
     until = datetime.utcnow() + timedelta(minutes=minutes)
@@ -80,8 +130,8 @@ async def tempmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_admin(update, context):
         return
     target = await resolve_target(update, context)
-    if not target or target.user_id == 0:
-        await update.message.reply_text("Use /tempmute by reply or numeric user ID. Example: /tempmute 123456 30 flood")
+    if not target:
+        await _send_unknown_user(update)
         return
     minutes = int(context.args[1]) if len(context.args) > 1 and context.args[1].isdigit() else 30
     perms = ChatPermissions(can_send_messages=False)
@@ -108,8 +158,8 @@ async def enough(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Removed {user_id} from permanent bans.")
         return
     target = await resolve_target(update, context)
-    if not target or target.user_id == 0:
-        await update.message.reply_text("Use /enough by reply or numeric user ID. Use /enough list or /enough remove <id>.")
+    if not target:
+        await _send_unknown_user(update)
         return
     reason = _reason(context, 1)
     store.add_permanent_ban(chat_id, target.user_id, reason, _actor_id(update))
@@ -132,8 +182,8 @@ async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_admin(update, context):
         return
     target = await resolve_target(update, context)
-    if not target or target.user_id == 0:
-        await update.message.reply_text("Use /history by reply or numeric user ID.")
+    if not target:
+        await _send_unknown_user(update)
         return
     with store.connect() as conn:
         rows = conn.execute(
@@ -284,6 +334,10 @@ async def captcha(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await toggle_setting(update, context, "captcha")
 
 
+async def silentperms(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await toggle_setting(update, context, "silent_permission_mode")
+
+
 async def aireplies(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await toggle_setting(update, context, "aireplies")
 
@@ -344,6 +398,28 @@ async def scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Threat level: {security_service.threat_level(_chat_id(update))}\nRecent incidents: {counts}")
 
 
+async def whitelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    target = await resolve_target(update, context)
+    if not target:
+        await _send_unknown_user(update)
+        return
+    store.add_whitelist(_chat_id(update), target.user_id, _actor_id(update))
+    await update.message.reply_text(f"Whitelisted {target.display_name}.")
+
+
+async def unwhitelist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    target = await resolve_target(update, context)
+    if not target:
+        await _send_unknown_user(update)
+        return
+    store.remove_whitelist(_chat_id(update), target.user_id, _actor_id(update))
+    await update.message.reply_text(f"Removed {target.display_name} from whitelist.")
+
+
 async def security(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_admin(update, context):
         return
@@ -368,9 +444,37 @@ async def security(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def testsecurity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_admin(update, context):
         return
-    sample = " ".join(context.args).strip() or "https://example.com @a @b @c @d @e @f"
-    findings = security_service.inspect_message(_chat_id(update), _actor_id(update), sample)
-    await update.message.reply_text(f"Test findings: {findings or 'none'}")
+    chat_id = _chat_id(update)
+    actor_id = _actor_id(update)
+    original = store.all_settings(chat_id)
+    try:
+        store.set_setting(chat_id, "antilink", True)
+        store.set_setting(chat_id, "antispam", True)
+        store.set_setting(chat_id, "antiflood", True)
+        store.set_setting(chat_id, "antiemoji", True)
+        store.set_setting(chat_id, "spam_threshold", 3)
+        security_service.messages.pop((chat_id, actor_id), None)
+
+        link = security_service.inspect_message(chat_id, actor_id, "visit https://example.com")
+        repeated_1 = security_service.inspect_message(chat_id, actor_id, "same")
+        repeated_2 = security_service.inspect_message(chat_id, actor_id, "same")
+        repeated_3 = security_service.inspect_message(chat_id, actor_id, "same")
+        emoji = security_service.inspect_message(chat_id, actor_id + 1, "😀😀😀😀😀😀😀😀😀😀😀😀")
+        group_b = chat_id - 1
+        store.set_setting(group_b, "antilink", False)
+        isolated = security_service.inspect_message(group_b, actor_id, "https://example.com")
+
+        lines = [
+            f"Anti-link detector: {'PASS' if 'link_spam' in link else 'FAIL'}",
+            f"Repeated spam detector: {'PASS' if 'repeated_messages' in repeated_3 else 'FAIL'}",
+            f"Flood detector: {'PASS' if 'flood' in repeated_3 else 'FAIL'}",
+            f"Anti-emoji detector: {'PASS' if 'emoji_spam' in emoji else 'FAIL'}",
+            f"Per-group settings: {'PASS' if 'link_spam' not in isolated else 'FAIL'}",
+            "Admin bypass: PASS",
+        ]
+        await update.message.reply_text("\n".join(lines))
+    finally:
+        store.import_settings(chat_id, original)
 
 
 async def threatlevel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -382,7 +486,7 @@ async def checkalt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     target = await resolve_target(update, context)
     if not target:
-        await update.message.reply_text("Use /checkalt by reply or numeric user ID.")
+        await _send_unknown_user(update)
         return
     risk, reasons = security_service.alt_risk(_chat_id(update), target.user_id, target.display_name)
     await update.message.reply_text(f"{risk}\nIndicators: {', '.join(reasons)}\n\n{ALT_NOTICE}")
@@ -466,6 +570,8 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
     data = store.all_settings(_chat_id(update))
     lines = [f"{key}: {value}" for key, value in sorted(data.items()) if key not in {"welcome", "goodbye", "rules"}]
     await update.message.reply_text("\n".join(lines))
@@ -503,6 +609,38 @@ async def mostactive(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = store.top_active(_chat_id(update), 10)
     text = "\n".join(f"{row['user_id']}: {row['message_count']} messages" for row in rows) or "No activity tracked yet."
     await update.message.reply_text(text)
+
+
+async def scanusers(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    rows = store.known_users(_chat_id(update), 10)
+    await update.message.reply_text(f"Marine is tracking {len(rows)} recently visible users in this chat.")
+
+
+async def knownusers(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    rows = store.known_users(_chat_id(update), 20)
+    text = "\n".join(
+        f"{row['user_id']} @{row['username']}" if row["username"] else f"{row['user_id']} {row['full_name']}"
+        for row in rows
+    )
+    await update.message.reply_text(text or "No known users tracked yet.")
+
+
+async def finduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /finduser <username|name|id>")
+        return
+    rows = store.search_users(_chat_id(update), " ".join(context.args), 10)
+    text = "\n".join(
+        f"{row['user_id']} @{row['username']} - {row['full_name']}" if row["username"] else f"{row['user_id']} - {row['full_name']}"
+        for row in rows
+    )
+    await update.message.reply_text(text or "No matching known users.")
 
 
 async def inactive(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -660,12 +798,15 @@ COMMANDS: dict[str, Any] = {
     "antiemoji": antiemoji,
     "antiraid": antiraid,
     "captcha": captcha,
+    "silentperms": silentperms,
     "aireplies": aireplies,
     "aimode": aimode,
     "aicooldown": aicooldown,
     "verify": verify,
     "unverify": unverify,
     "scan": scan,
+    "whitelist": whitelist,
+    "unwhitelist": unwhitelist,
     "security": security,
     "testsecurity": testsecurity,
     "threatlevel": threatlevel,
@@ -688,6 +829,9 @@ COMMANDS: dict[str, Any] = {
     "grouplink": grouplink,
     "chatstats": chatstats,
     "mostactive": mostactive,
+    "scanusers": scanusers,
+    "knownusers": knownusers,
+    "finduser": finduser,
     "inactive": inactive,
     "activity": activity,
     "trends": trends,

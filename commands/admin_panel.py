@@ -11,7 +11,7 @@ from typing import Any
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from config import OWNER_ID
+from config import OWNER_ID, SILENT_PERMISSION_MODE
 from services.group_management import store
 
 
@@ -21,10 +21,13 @@ TOGGLE_KEYS = {
     "antispam": "Anti-spam",
     "antilink": "Anti-link",
     "antiflood": "Anti-flood",
+    "antiemoji": "Anti-emoji",
+    "antiraid": "Anti-raid",
     "captcha": "Captcha",
     "guardian": "Guardian",
     "ai_enabled": "AI enabled",
     "aireplies": "Auto AI replies",
+    "silent_permission_mode": "Silent permissions",
 }
 
 PUNISHMENTS = ["mute", "ban", "kick", "warn"]
@@ -64,27 +67,62 @@ def _actor_id(update: Update) -> int:
 async def _is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if _actor_id(update) == OWNER_ID:
         return True
-    member = await context.bot.get_chat_member(_chat_id(update), _actor_id(update))
-    return member.status in {"administrator", "creator"}
+    try:
+        member = await context.bot.get_chat_member(_chat_id(update), _actor_id(update))
+        return member.status in {"administrator", "creator"}
+    except Exception:
+        return False
+
+
+def _silent_permission_mode(chat_id: int) -> bool:
+    return bool(store.get_setting(chat_id, "silent_permission_mode", SILENT_PERMISSION_MODE))
+
+
+def _command_text(update: Update) -> str:
+    if update.message:
+        return str(getattr(update.message, "text", "") or "").split(maxsplit=1)[0]
+    if update.callback_query:
+        return str(update.callback_query.data or "callback")
+    return "unknown"
+
+
+async def _log_unauthorized(update: Update, required: str) -> None:
+    user = update.effective_user
+    username = getattr(user, "username", None) or getattr(user, "full_name", None) or "unknown"
+    command = _command_text(update)
+    reason = f"required={required}; username={username}; command={command}"
+    logger.warning(
+        "Unauthorized panel attempt user=%s username=%s chat=%s command=%s required=%s",
+        _actor_id(update),
+        username,
+        _chat_id(update),
+        command,
+        required,
+    )
+    store.log_action(_chat_id(update), _actor_id(update), "unauthorized_command", reason=reason)
 
 
 async def _require_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if await _is_admin(update, context):
         return True
+    await _log_unauthorized(update, "admin")
+    silent = _silent_permission_mode(_chat_id(update))
     if update.callback_query:
-        await update.callback_query.answer("Admin permission required.", show_alert=True)
-    elif update.message:
-        await update.message.reply_text("Admin permission required.")
+        await update.callback_query.answer(None if silent else "You don't have permission to use this command.", show_alert=not silent)
+    elif update.message and not silent:
+        await update.message.reply_text("You don't have permission to use this command.")
     return False
 
 
 async def _require_owner(update: Update) -> bool:
     if _actor_id(update) == OWNER_ID:
         return True
+    await _log_unauthorized(update, "owner")
+    silent = _silent_permission_mode(_chat_id(update))
     if update.callback_query:
-        await update.callback_query.answer("Owner-only control.", show_alert=True)
-    elif update.message:
-        await update.message.reply_text("Owner-only command.")
+        await update.callback_query.answer(None if silent else "You don't have permission to use this command.", show_alert=not silent)
+    elif update.message and not silent:
+        await update.message.reply_text("You don't have permission to use this command.")
     return False
 
 
@@ -212,7 +250,7 @@ async def toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text(
             "Usage:\n"
-            "/toggle <antispam|antilink|antiflood|captcha|guardian|ai_enabled> [on|off]\n"
+            "/toggle <antispam|antilink|antiflood|captcha|guardian|ai_enabled|silent_permission_mode> [on|off]\n"
             "/toggle slowmode <seconds>\n"
             "/toggle warnings_limit <number>\n"
             "/toggle punishment <mute|ban|kick|warn>\n"

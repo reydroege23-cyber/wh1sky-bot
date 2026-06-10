@@ -19,6 +19,7 @@ import json
 from pathlib import Path
 from functools import wraps
 from config import *
+from services.group_management import store as group_store
 import asyncio
 
 # =========================
@@ -83,8 +84,30 @@ def admin_only(func):
     """Check if user is admin."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if update.effective_user.id not in ADMIN_IDS:
-            logger.warning(f"🚫 Unauthorized access by {update.effective_user.id}")
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id if update.effective_chat else 0
+        if user_id not in ADMIN_IDS and user_id != OWNER_ID:
+            command = str(getattr(update.message, "text", "") or func.__name__).split(maxsplit=1)[0]
+            username = getattr(update.effective_user, "username", None) or getattr(update.effective_user, "full_name", None) or "unknown"
+            logger.warning(
+                "Unauthorized command attempt user=%s username=%s chat=%s command=%s required=admin",
+                user_id,
+                username,
+                chat_id,
+                command,
+            )
+            try:
+                group_store.log_action(
+                    chat_id,
+                    user_id,
+                    "unauthorized_command",
+                    reason=f"required=admin; username={username}; command={command}",
+                )
+            except Exception as exc:
+                logger.debug("Failed to persist unauthorized command attempt: %s", exc)
+            silent = bool(group_store.get_setting(chat_id, "silent_permission_mode", SILENT_PERMISSION_MODE))
+            if update.message and not silent:
+                await update.message.reply_text("You don't have permission to use this command.")
             return
         return await func(update, context)
     return wrapper

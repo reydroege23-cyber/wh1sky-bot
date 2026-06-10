@@ -36,6 +36,7 @@ from safe_math import CalculationError, evaluate_expression, format_decimal
 from single_instance import SingleInstanceLock
 from commands.group_management import COMMANDS as GROUP_MANAGEMENT_COMMANDS
 from commands.admin_panel import COMMANDS as ADMIN_PANEL_COMMANDS, panel_callback
+from commands.owner_panel import COMMANDS as OWNER_PANEL_COMMANDS, owner_callback, owner_text_input
 from services.group_management import security_service, store as group_store
 from healthcheck import start_background as start_health_server
 from bot_commands import command_names as menu_command_names, sync_bot_commands
@@ -179,6 +180,46 @@ def _safe_chat_id(update) -> int | None:
         return None
 
 
+def _remember_visible_user(update: Update, increment_messages: bool = False) -> None:
+    if not update.effective_chat:
+        return
+    chat_id = update.effective_chat.id
+    try:
+        group_store.register_chat(update.effective_chat)
+    except Exception as e:
+        logger.debug("Failed to register chat %s: %s", chat_id, e)
+    users = []
+    if update.effective_user:
+        users.append(update.effective_user)
+    msg = _safe_message_obj(update)
+    if msg and getattr(msg, "reply_to_message", None) and getattr(msg.reply_to_message, "from_user", None):
+        users.append(msg.reply_to_message.from_user)
+    if msg:
+        users.extend(getattr(msg, "new_chat_members", None) or [])
+        for entity in list(getattr(msg, "entities", None) or []):
+            entity_user = getattr(entity, "user", None)
+            if entity_user:
+                users.append(entity_user)
+    seen: set[int] = set()
+    for user in users:
+        user_id = getattr(user, "id", None)
+        if user_id is None or user_id in seen or getattr(user, "is_bot", False):
+            continue
+        seen.add(user_id)
+        try:
+            group_store.record_user(chat_id, user, increment_messages=increment_messages and user == update.effective_user)
+        except Exception as e:
+            logger.debug("Failed to record visible user %s in %s: %s", user_id, chat_id, e)
+
+
+async def track_visible_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message:
+        _remember_visible_user(update, increment_messages=bool(update.message.text))
+        command = str(getattr(update.message, "text", "") or "").split(maxsplit=1)[0]
+        if command.startswith("/") and update.effective_chat and update.effective_user:
+            group_store.record_command_usage(update.effective_chat.id, update.effective_user.id, command)
+
+
 async def safe_delete_message(bot, chat_id, message_id) -> bool:
     """Safely delete a message, validating IDs and handling BadRequest.
 
@@ -232,26 +273,78 @@ async def flush_pending_saves():
 # DECORATORS (ENHANCED)
 # =========================
 
+def _silent_permission_mode(chat_id: int | None) -> bool:
+    if chat_id is None:
+        return SILENT_PERMISSION_MODE
+    try:
+        return bool(group_store.get_setting(chat_id, "silent_permission_mode", SILENT_PERMISSION_MODE))
+    except Exception:
+        return SILENT_PERMISSION_MODE
+
+
+def _command_text(update: Update) -> str:
+    msg = _safe_message_obj(update)
+    return str(getattr(msg, "text", "") or "").split(maxsplit=1)[0]
+
+
+async def _log_unauthorized_attempt(update: Update, command_name: str, required: str) -> None:
+    user = _safe_effective_user(update)
+    user_id = getattr(user, "id", None)
+    username = getattr(user, "username", None) or getattr(user, "full_name", None) or "unknown"
+    chat_id = _safe_chat_id(update) or 0
+    command = _command_text(update) or command_name
+    detail = f"required={required}; username={username}; command={command}"
+    logger.warning(
+        "Unauthorized command attempt user=%s username=%s chat=%s command=%s required=%s",
+        user_id,
+        username,
+        chat_id,
+        command,
+        required,
+    )
+    try:
+        group_store.log_action(chat_id, int(user_id) if user_id is not None else None, "unauthorized_command", reason=detail)
+    except Exception as e:
+        logger.debug("Failed to persist unauthorized command attempt: %s", e)
+
+
+async def _user_has_admin_permission(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user_id = _safe_user_id(update)
+    chat_id = _safe_chat_id(update)
+    if user_id is None:
+        return False
+    if user_id == OWNER_ID or user_id in ADMIN_IDS:
+        return True
+    if chat_id is None:
+        return False
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+        return member.status in {"administrator", "creator"}
+    except Exception as e:
+        logger.debug("Admin permission lookup failed for %s in %s: %s", user_id, chat_id, e)
+        return False
+
+
 def admin_only(func):
-    """Check if user is admin."""
+    """Check if user is an admin; silently ignore unauthorized users by default."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = _safe_user_id(update)
+        chat_id = _safe_chat_id(update)
+        msg = _safe_message_obj(update)
 
         if user_id is None:
-            logger.warning("🚫 admin_only: no user in update")
-            msg = _safe_message_obj(update)
-            if msg:
-                await msg.reply_text("❌ Could not determine user.")
+            logger.warning("admin_only: no user in update")
+            if msg and not _silent_permission_mode(chat_id):
+                await msg.reply_text("Could not determine user.")
             return
 
-        if user_id not in ADMIN_IDS:
-            logger.warning(f"🚫 Unauthorized access by {user_id}")
-            msg = _safe_message_obj(update)
-            if msg:
-                await msg.reply_text("❌ Only admins can use this command.")
+        if not await _user_has_admin_permission(update, context):
+            await _log_unauthorized_attempt(update, func.__name__, "admin")
+            if msg and not _silent_permission_mode(chat_id):
+                await msg.reply_text("You don't have permission to use this command.")
             return
-        
+
         return await func(update, context)
     return wrapper
 
@@ -261,19 +354,19 @@ def owner_only(func):
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = _safe_user_id(update)
+        chat_id = _safe_chat_id(update)
+        msg = _safe_message_obj(update)
 
         if user_id is None:
-            logger.warning("🚫 owner_only: no user in update")
-            msg = _safe_message_obj(update)
-            if msg:
-                await msg.reply_text("❌ Could not determine user.")
+            logger.warning("owner_only: no user in update")
+            if msg and not _silent_permission_mode(chat_id):
+                await msg.reply_text("Could not determine user.")
             return
 
         if user_id != OWNER_ID:
-            logger.warning(f"🚫 Unauthorized owner-only access by {user_id}")
-            msg = _safe_message_obj(update)
-            if msg:
-                await msg.reply_text("❌ You are not authorized to use this command.")
+            await _log_unauthorized_attempt(update, func.__name__, "owner")
+            if msg and not _silent_permission_mode(chat_id):
+                await msg.reply_text("You don't have permission to use this command.")
             return
 
         return await func(update, context)
@@ -701,9 +794,11 @@ async def lasthope_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Launch the owner-only Last Hope control panel."""
     uid = _safe_user_id(update)
     if uid != OWNER_ID:
+        await _log_unauthorized_attempt(update, "lasthope_command", "owner")
         msg = _safe_message_obj(update)
-        if msg:
-            await msg.reply_text("❌ Only the owner can deploy the Last Hope system.")
+        chat_id = _safe_chat_id(update)
+        if msg and not _silent_permission_mode(chat_id):
+            await msg.reply_text("You don't have permission to use this command.")
         return
 
     chat_id = _safe_chat_id(update)
@@ -749,8 +844,13 @@ async def lasthope_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     uid = _safe_user_id(update)
     if uid != OWNER_ID:
+        await _log_unauthorized_attempt(update, "lasthope_callback", "owner")
+        silent = _silent_permission_mode(_safe_chat_id(update))
         try:
-            await query.answer("🚫 Only the owner can operate Last Hope.", show_alert=True)
+            await query.answer(
+                None if silent else "You don't have permission to use this command.",
+                show_alert=not silent,
+            )
         except Exception:
             pass
         return
@@ -923,9 +1023,11 @@ async def freedom_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Remove the active Last Hope panel and restore normal operations."""
     uid = _safe_user_id(update)
     if uid != OWNER_ID:
+        await _log_unauthorized_attempt(update, "freedom_command", "owner")
         msg = _safe_message_obj(update)
-        if msg:
-            await msg.reply_text("❌ Only the owner can use /Freedom.")
+        chat_id = _safe_chat_id(update)
+        if msg and not _silent_permission_mode(chat_id):
+            await msg.reply_text("You don't have permission to use this command.")
         return
 
     chat_id = _safe_chat_id(update)
@@ -1048,6 +1150,27 @@ async def _apply_security_punishment(
     return "warn"
 
 
+async def _bot_can(context: ContextTypes.DEFAULT_TYPE, chat_id: int, permission: str) -> bool:
+    bot_id = getattr(context.bot, "id", None)
+    if bot_id is None:
+        return True
+    try:
+        member = await context.bot.get_chat_member(chat_id, bot_id)
+    except Exception as e:
+        logger.warning("Could not verify Marine permission %s in %s: %s", permission, chat_id, e)
+        return True
+    return bool(getattr(member, permission, False))
+
+
+async def _warn_missing_permission(update: Update, permission: str) -> None:
+    logger.warning(
+        "Marine missing bot permission %s in chat=%s while handling user=%s",
+        permission,
+        _safe_chat_id(update),
+        _safe_user_id(update),
+    )
+
+
 async def _handle_security_findings(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -1061,6 +1184,9 @@ async def _handle_security_findings(
     chat_type = getattr(update.effective_chat, "type", "")
     if chat_type not in {"group", "supergroup"}:
         return False
+    if user_id == OWNER_ID or group_store.is_whitelisted(chat_id, user_id):
+        logger.info("Security scanner bypassed trusted user %s in chat %s for %s", user_id, chat_id, findings)
+        return False
     if await _is_group_admin_user(context, chat_id, user_id):
         logger.info("Security scanner bypassed admin %s in chat %s for %s", user_id, chat_id, findings)
         return False
@@ -1071,11 +1197,15 @@ async def _handle_security_findings(
     punishment = str(settings.get("punishment", "mute"))
     reason = ",".join(findings)
 
-    try:
-        await update.message.delete()
-        group_store.log_action(chat_id, None, "security_delete", user_id, reason)
-    except Exception as e:
-        logger.warning("Security delete failed for %s in %s: %s", user_id, chat_id, e)
+    if await _bot_can(context, chat_id, "can_delete_messages"):
+        try:
+            await update.message.delete()
+            group_store.log_action(chat_id, None, "security_delete", user_id, reason)
+        except Exception as e:
+            logger.warning("Security delete failed for %s in %s: %s", user_id, chat_id, e)
+    else:
+        await _warn_missing_permission(update, "can_delete_messages")
+        group_store.log_action(chat_id, None, "security_missing_permission", user_id, "can_delete_messages")
 
     warning_count = group_store.add_warning(chat_id, user_id)
     group_store.log_action(chat_id, None, "security_warn", user_id, f"{reason}; warnings={warning_count}")
@@ -1083,10 +1213,14 @@ async def _handle_security_findings(
     should_punish = guardian_enabled or warning_count >= warning_limit
     if should_punish:
         try:
-            action = await _apply_security_punishment(context, chat_id, user_id, punishment, reason)
-            group_store.log_action(chat_id, None, f"security_{action}", user_id, reason)
-            if warning_count >= warning_limit:
-                group_store.clear_warnings(chat_id, user_id)
+            if punishment in {"mute", "ban", "kick"} and not await _bot_can(context, chat_id, "can_restrict_members"):
+                await _warn_missing_permission(update, "can_restrict_members")
+                group_store.log_action(chat_id, None, "security_missing_permission", user_id, "can_restrict_members")
+            else:
+                action = await _apply_security_punishment(context, chat_id, user_id, punishment, reason)
+                group_store.log_action(chat_id, None, f"security_{action}", user_id, reason)
+                if warning_count >= warning_limit:
+                    group_store.clear_warnings(chat_id, user_id)
         except Exception as e:
             logger.warning("Security punishment failed for %s in %s: %s", user_id, chat_id, e)
 
@@ -1285,6 +1419,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Enhanced message handling."""
     if not update.message or not update.message.text or not update.effective_chat or not update.effective_user:
         return
+    if getattr(update.effective_user, "is_bot", False):
+        logger.info("Ignoring bot message from %s in chat %s", update.effective_user.id, update.effective_chat.id)
+        return
 
     user_id = str(update.effective_user.id)
     user_id_int = update.effective_user.id
@@ -1292,7 +1429,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     group_store.record_message(chat_id, user_id_int)
 
-    findings = security_service.inspect_message(chat_id, user_id_int, update.message.text)
+    findings = security_service.inspect_message(
+        chat_id,
+        user_id_int,
+        update.message.text,
+        entities=list(update.message.entities or []),
+    )
     if await _handle_security_findings(update, context, findings):
         return
 
@@ -1364,11 +1506,20 @@ async def get_user_from_command(update: Update, context: ContextTypes.DEFAULT_TY
     Extract user from reply, @username mention, or numeric user_id.
     Returns: (user_id, username) or (None, None) if not found.
     """
-    if update.message.reply_to_message:
-        user = update.message.reply_to_message.from_user
+    reply = getattr(update.message, "reply_to_message", None)
+    if reply and getattr(reply, "from_user", None):
+        user = reply.from_user
+        if update.effective_chat:
+            group_store.record_user(update.effective_chat.id, user)
         return user.id, user.first_name or user.username or "User"
 
     if not context.args:
+        msg = _safe_message_obj(update)
+        for entity in list(getattr(msg, "entities", None) or []):
+            mentioned_user = getattr(entity, "user", None)
+            if mentioned_user and update.effective_chat:
+                group_store.record_user(update.effective_chat.id, mentioned_user)
+                return mentioned_user.id, mentioned_user.full_name or mentioned_user.username or "User"
         return None, None
 
     arg = context.args[0].strip()
@@ -1393,25 +1544,29 @@ async def get_user_from_command(update: Update, context: ContextTypes.DEFAULT_TY
     # Username mention provided
     if arg.startswith('@'):
         username = arg[1:]
-        try:
-            chat_obj = await context.bot.get_chat(arg)
-            user_id = chat_obj.id
-            display_name = getattr(chat_obj, 'first_name', None) or getattr(chat_obj, 'username', None) or username
-            return user_id, display_name
-        except Exception as e:
-            logger.debug(f"Could not resolve @username via get_chat: {e}")
-        
-        # Fall back to local chat member lookup if username is in the group
         chat_id = _safe_chat_id(update)
         if chat_id is not None:
+            known = group_store.resolve_known_user(chat_id, username)
+            if known:
+                return known.user_id, known.display_name
             try:
                 members = await context.bot.get_chat_administrators(chat_id)
                 for member in members:
                     uname = getattr(member.user, 'username', None)
                     if uname and uname.lower() == username.lower():
+                        group_store.record_user(chat_id, member.user)
                         return member.user.id, member.user.first_name or username
             except Exception as e:
                 logger.debug(f"Fallback admin lookup failed for @{username}: {e}")
+        try:
+            chat_obj = await context.bot.get_chat(arg)
+            user_id = chat_obj.id
+            display_name = getattr(chat_obj, 'first_name', None) or getattr(chat_obj, 'username', None) or username
+            if chat_id is not None:
+                group_store.record_user(chat_id, chat_obj)
+            return user_id, display_name
+        except Exception as e:
+            logger.debug(f"Could not resolve @username via get_chat: {e}")
 
     return None, None
 
@@ -1635,61 +1790,11 @@ async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @admin_only
 async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ban user - STRICT: Requires /ban @username or reply ONLY."""
+    """Ban user by reply, ID, text mention, or known username."""
     try:
-        # STRICT: initialize variables and check if this is a reply message context
-        user_id = None
-        username = None
-        # If replying, allow ban without additional args
-        if update.message.reply_to_message:
-            user_id = update.message.reply_to_message.from_user.id
-            username = update.message.reply_to_message.from_user.first_name or "User"
-        else:
-            # NOT replying: MUST have explicit @username in args
-            if not context.args:
-                await update.message.reply_text(
-                    "❌ Please reply to a message or provide a username.\\n"
-                    "Example: `/ban @username`"
-                )
-                return
-            
-            arg = context.args[0]
-            
-            # MUST start with @
-            if not arg.startswith('@'):
-                await update.message.reply_text(
-                    "❌ Please mention a user with @username.\\n"
-                    "Example: `/ban @username`"
-                )
-                return
-            
-            username = arg[1:]  # Remove @
-            
-            try:
-                # Try to resolve @username by searching chat administrators
-                chat_id = getattr(update.effective_chat, 'id', None)
-                if chat_id is None:
-                    await update.message.reply_text(f"❌ Could not determine chat id")
-                    return
-                admins = await context.bot.get_chat_administrators(chat_id)
-                resolved = False
-                for member in admins:
-                    uname = getattr(member.user, 'username', None)
-                    if uname and uname.lower() == username.lower():
-                        user_id = member.user.id
-                        resolved = True
-                        break
-                if not resolved:
-                    await update.message.reply_text(f"❌ User @{username} not found in chat")
-                    return
-            except Exception as e:
-                logger.error(f"Failed to resolve @{username}: {e}")
-                await update.message.reply_text(f"❌ User @{username} not found")
-                return
-        
-        # Ensure we resolved a user id
-        if user_id is None:
-            await update.message.reply_text("❌ Could not determine target user to ban.")
+        user_id, username = await get_user_from_command(update, context)
+        if not user_id:
+            await update.message.reply_text("I don't know this user yet. Reply to their message or use their Telegram ID.")
             return
 
         # Check if admin
@@ -1833,6 +1938,14 @@ async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_
 
     chat_id = update.effective_chat.id
     for member in update.message.new_chat_members:
+        group_store.record_user(chat_id, member)
+        invite_link = getattr(update.message, "invite_link", None)
+        group_store.record_invite_join(
+            chat_id,
+            member.id,
+            str(getattr(invite_link, "invite_link", "") or "") or None,
+            getattr(getattr(invite_link, "creator", None), "id", None),
+        )
         if group_store.is_permanently_banned(chat_id, member.id):
             try:
                 await context.bot.ban_chat_member(chat_id, member.id)
@@ -1853,6 +1966,14 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     request = update.chat_join_request
     user_id = request.from_user.id
     chat_id = request.chat.id
+    group_store.record_user(chat_id, request.from_user)
+    invite_link = getattr(request, "invite_link", None)
+    group_store.record_invite_join(
+        chat_id,
+        user_id,
+        str(getattr(invite_link, "invite_link", "") or "") or None,
+        getattr(getattr(invite_link, "creator", None), "id", None),
+    )
     if group_store.is_permanently_banned(chat_id, user_id):
         try:
             await context.bot.ban_chat_member(chat_id, user_id)
@@ -3619,6 +3740,10 @@ def setup_bot():
     
     # Error handler
     app.add_error_handler(error_handler)
+
+    # Passive user/command tracking. Runs before command handlers and never replies.
+    app.add_handler(MessageHandler(filters.ALL, track_visible_user), group=-100)
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, owner_text_input), group=-90)
     
     # Commands
     app.add_handler(CommandHandler("start", start))
@@ -3727,6 +3852,9 @@ def setup_bot():
     for command_name, handler in ADMIN_PANEL_COMMANDS.items():
         app.add_handler(CommandHandler(command_name, handler))
 
+    for command_name, handler in OWNER_PANEL_COMMANDS.items():
+        app.add_handler(CommandHandler(command_name, handler))
+
     for command_name, handler in GROUP_MANAGEMENT_COMMANDS.items():
         app.add_handler(CommandHandler(command_name, handler))
 
@@ -3734,6 +3862,7 @@ def setup_bot():
     logger.info("Registered %d Telegram menu commands in code", len(registered_menu_commands))
 
     app.add_handler(CallbackQueryHandler(panel_callback, pattern=r"^panel:"))
+    app.add_handler(CallbackQueryHandler(owner_callback, pattern=r"^owner:"))
     app.add_handler(CallbackQueryHandler(lasthope_callback))
 
     # Enforce permanent blacklist
@@ -3741,7 +3870,7 @@ def setup_bot():
     app.add_handler(ChatJoinRequestHandler(handle_join_request))
 
     # Messages (must be last)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message), group=0)
     
     return app
 

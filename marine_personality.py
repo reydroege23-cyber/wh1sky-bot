@@ -87,6 +87,17 @@ Core mission:
 
 def marine_system_prompt(chat_context: str = "group", is_owner: bool = False) -> str:
     """Return Marine's system prompt with chat-context guidance."""
+    try:
+        from services.group_management import store
+
+        custom_personality = store.get_bot_setting("marine_personality", "")
+        branding = store.get_bot_setting("bot_branding", "Marine")
+        owner_lore = store.get_bot_setting("owner_lore", "")
+    except Exception:
+        custom_personality = ""
+        branding = "Marine"
+        owner_lore = ""
+
     if chat_context == "private":
         context = (
             "Current chat context: private chat. You may hold a longer conversation, "
@@ -103,4 +114,11 @@ def marine_system_prompt(chat_context: str = "group", is_owner: bool = False) ->
         if is_owner
         else "Current user context: the user is not owner ID 8577797097. Do not use Whisky special treatment."
     )
-    return f"{MARINE_IDENTITY_PROMPT}\n\n{context}\n\n{owner_context}"
+    custom = ""
+    if branding:
+        custom += f"\n\nCurrent bot branding/name text configured by the owner: {branding}"
+    if custom_personality:
+        custom += f"\n\nOwner-configured Marine personality additions:\n{custom_personality}"
+    if owner_lore:
+        custom += f"\n\nOwner-configured lore/glazing guidance:\n{owner_lore}"
+    return f"{MARINE_IDENTITY_PROMPT}{custom}\n\n{context}\n\n{owner_context}"

@@ -46,6 +46,7 @@ DEFAULT_SETTINGS = {
     "group_language": "en",
     "maintenance": False,
     "command_permissions": "{}",
+    "silent_permission_mode": True,
     "rules": "No rules have been set yet.",
     "welcome": "Welcome {mention} to {chat}!",
     "goodbye": "Goodbye {name}.",
@@ -76,6 +77,7 @@ SETTING_COLUMNS: dict[str, tuple[str, str]] = {
     "log_channel": ("log_chat_id", "nullable_int"),
     "group_language": ("group_language", "text"),
     "command_permissions": ("command_permissions", "text"),
+    "silent_permission_mode": ("silent_permission_mode", "bool"),
     "slowmode": ("slowmode", "int"),
     "spam_threshold": ("spam_threshold", "int"),
     "flood_window": ("flood_window", "int"),
@@ -108,6 +110,7 @@ CHAT_SETTINGS_COLUMNS_SQL = {
     "log_chat_id": "INTEGER DEFAULT NULL",
     "group_language": "TEXT NOT NULL DEFAULT 'en'",
     "command_permissions": "TEXT NOT NULL DEFAULT '{}'",
+    "silent_permission_mode": "INTEGER NOT NULL DEFAULT 1",
     "slowmode": "INTEGER NOT NULL DEFAULT 0",
     "spam_threshold": "INTEGER NOT NULL DEFAULT 5",
     "flood_window": "INTEGER NOT NULL DEFAULT 10",
@@ -120,6 +123,7 @@ CHAT_SETTINGS_COLUMNS_SQL = {
 class TargetUser:
     user_id: int
     display_name: str
+    username: str | None = None
 
 
 class GroupStore:
@@ -169,11 +173,62 @@ class GroupStore:
                     PRIMARY KEY(chat_id, user_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS known_users (
+                    user_id INTEGER PRIMARY KEY,
+                    username TEXT,
+                    username_norm TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    full_name TEXT,
+                    first_seen TEXT NOT NULL,
+                    last_seen TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_known_users_username_norm
+                    ON known_users(username_norm);
+
+                CREATE TABLE IF NOT EXISTS chat_members_seen (
+                    chat_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    username TEXT,
+                    username_norm TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    full_name TEXT,
+                    first_seen TEXT NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    message_count INTEGER NOT NULL DEFAULT 0,
+                    warnings INTEGER NOT NULL DEFAULT 0,
+                    bans INTEGER NOT NULL DEFAULT 0,
+                    reputation INTEGER NOT NULL DEFAULT 100,
+                    PRIMARY KEY(chat_id, user_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_chat_members_seen_username
+                    ON chat_members_seen(chat_id, username_norm);
+
                 CREATE TABLE IF NOT EXISTS warnings (
                     chat_id INTEGER NOT NULL,
                     user_id INTEGER NOT NULL,
                     warning_count INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL,
+                    PRIMARY KEY(chat_id, user_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS mutes (
+                    chat_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    until_at TEXT,
+                    reason TEXT,
+                    created_by INTEGER,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(chat_id, user_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS bans (
+                    chat_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    reason TEXT,
+                    created_by INTEGER,
+                    created_at TEXT NOT NULL,
                     PRIMARY KEY(chat_id, user_id)
                 );
 
@@ -202,6 +257,100 @@ class GroupStore:
                     created_by INTEGER,
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY(chat_id, name)
+                );
+
+                CREATE TABLE IF NOT EXISTS rules (
+                    chat_id INTEGER PRIMARY KEY,
+                    text TEXT NOT NULL,
+                    updated_by INTEGER,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS welcome_messages (
+                    chat_id INTEGER PRIMARY KEY,
+                    text TEXT NOT NULL,
+                    updated_by INTEGER,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS goodbye_messages (
+                    chat_id INTEGER PRIMARY KEY,
+                    text TEXT NOT NULL,
+                    updated_by INTEGER,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS ai_memory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_ai_memory_chat_user
+                    ON ai_memory(chat_id, user_id, created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS command_usage_stats (
+                    chat_id INTEGER NOT NULL,
+                    user_id INTEGER,
+                    command TEXT NOT NULL,
+                    count INTEGER NOT NULL DEFAULT 0,
+                    last_used TEXT NOT NULL,
+                    PRIMARY KEY(chat_id, user_id, command)
+                );
+
+                CREATE TABLE IF NOT EXISTS admin_actions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL,
+                    admin_id INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    target_id INTEGER,
+                    detail TEXT,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS captcha_verification (
+                    chat_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    challenge TEXT,
+                    expires_at TEXT,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(chat_id, user_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS invite_tracking (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    invite_link TEXT,
+                    inviter_id INTEGER,
+                    joined_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS whitelist (
+                    chat_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    added_by INTEGER,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(chat_id, user_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS bot_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_by INTEGER,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS chat_registry (
+                    chat_id INTEGER PRIMARY KEY,
+                    title TEXT,
+                    chat_type TEXT,
+                    username TEXT,
+                    first_seen TEXT NOT NULL,
+                    last_seen TEXT NOT NULL
                 );
                 """
             )
@@ -277,6 +426,218 @@ class GroupStore:
                 """,
                 (chat_id, actor_id, target_id, action, reason, self.now()),
             )
+
+    def record_user(self, chat_id: int, user: Any, increment_messages: bool = False) -> None:
+        user_id = int(getattr(user, "id"))
+        username = getattr(user, "username", None) or ""
+        username_norm = username.lower().lstrip("@") if username else None
+        first_name = getattr(user, "first_name", None) or ""
+        last_name = getattr(user, "last_name", None) or ""
+        full_name = getattr(user, "full_name", None) or " ".join(part for part in [first_name, last_name] if part) or username or str(user_id)
+        now = self.now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO known_users(user_id, username, username_norm, first_name, last_name, full_name, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    username = excluded.username,
+                    username_norm = excluded.username_norm,
+                    first_name = excluded.first_name,
+                    last_name = excluded.last_name,
+                    full_name = excluded.full_name,
+                    last_seen = excluded.last_seen
+                """,
+                (user_id, username or None, username_norm, first_name, last_name, full_name, now, now),
+            )
+            conn.execute(
+                """
+                INSERT INTO chat_members_seen(
+                    chat_id, user_id, username, username_norm, first_name, last_name,
+                    full_name, first_seen, last_seen, message_count
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chat_id, user_id) DO UPDATE SET
+                    username = excluded.username,
+                    username_norm = excluded.username_norm,
+                    first_name = excluded.first_name,
+                    last_name = excluded.last_name,
+                    full_name = excluded.full_name,
+                    last_seen = excluded.last_seen,
+                    message_count = chat_members_seen.message_count + excluded.message_count
+                """,
+                (chat_id, user_id, username or None, username_norm, first_name, last_name, full_name, now, now, 1 if increment_messages else 0),
+            )
+
+    def record_command_usage(self, chat_id: int, user_id: int | None, command: str) -> None:
+        now = self.now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO command_usage_stats(chat_id, user_id, command, count, last_used)
+                VALUES (?, ?, ?, 1, ?)
+                ON CONFLICT(chat_id, user_id, command) DO UPDATE SET
+                    count = count + 1,
+                    last_used = excluded.last_used
+                """,
+                (chat_id, user_id, command.lower().lstrip("/"), now),
+            )
+
+    def resolve_known_user(self, chat_id: int, username: str) -> TargetUser | None:
+        username_norm = username.lower().lstrip("@")
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT user_id, full_name, username
+                FROM chat_members_seen
+                WHERE chat_id = ? AND username_norm = ?
+                ORDER BY last_seen DESC
+                LIMIT 1
+                """,
+                (chat_id, username_norm),
+            ).fetchone()
+            if not row:
+                row = conn.execute(
+                    """
+                    SELECT user_id, full_name, username
+                    FROM known_users
+                    WHERE username_norm = ?
+                    ORDER BY last_seen DESC
+                    LIMIT 1
+                    """,
+                    (username_norm,),
+                ).fetchone()
+        if not row:
+            return None
+        display = row["full_name"] or (f"@{row['username']}" if row["username"] else str(row["user_id"]))
+        return TargetUser(int(row["user_id"]), display, row["username"])
+
+    def known_users(self, chat_id: int, limit: int = 20) -> list[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute(
+                """
+                SELECT user_id, username, full_name, last_seen, message_count
+                FROM chat_members_seen
+                WHERE chat_id = ?
+                ORDER BY last_seen DESC
+                LIMIT ?
+                """,
+                (chat_id, limit),
+            ).fetchall()
+
+    def search_users(self, chat_id: int, query: str, limit: int = 10) -> list[sqlite3.Row]:
+        needle = f"%{query.lower().lstrip('@')}%"
+        with self.connect() as conn:
+            return conn.execute(
+                """
+                SELECT user_id, username, full_name, last_seen, message_count
+                FROM chat_members_seen
+                WHERE chat_id = ? AND (
+                    username_norm LIKE ? OR lower(full_name) LIKE ? OR CAST(user_id AS TEXT) LIKE ?
+                )
+                ORDER BY last_seen DESC
+                LIMIT ?
+                """,
+                (chat_id, needle, needle, needle, limit),
+            ).fetchall()
+
+    def record_invite_join(
+        self,
+        chat_id: int,
+        user_id: int,
+        invite_link: str | None = None,
+        inviter_id: int | None = None,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO invite_tracking(chat_id, user_id, invite_link, inviter_id, joined_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (chat_id, user_id, invite_link, inviter_id, self.now()),
+            )
+
+    def register_chat(self, chat: Any) -> None:
+        chat_id = int(getattr(chat, "id"))
+        title = getattr(chat, "title", None) or getattr(chat, "full_name", None) or getattr(chat, "first_name", None) or str(chat_id)
+        chat_type = getattr(chat, "type", None) or "unknown"
+        username = getattr(chat, "username", None)
+        now = self.now()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO chat_registry(chat_id, title, chat_type, username, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chat_id) DO UPDATE SET
+                    title = excluded.title,
+                    chat_type = excluded.chat_type,
+                    username = excluded.username,
+                    last_seen = excluded.last_seen
+                """,
+                (chat_id, title, chat_type, username, now, now),
+            )
+
+    def registered_chats(self, include_private: bool = False, limit: int = 50) -> list[sqlite3.Row]:
+        where = "" if include_private else "WHERE chat_type != 'private'"
+        with self.connect() as conn:
+            return conn.execute(
+                f"SELECT * FROM chat_registry {where} ORDER BY last_seen DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+
+    def set_bot_setting(self, key: str, value: Any, actor_id: int | None = None) -> None:
+        payload = json.dumps(value, ensure_ascii=False)
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO bot_settings(key, value, updated_by, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_by = excluded.updated_by,
+                    updated_at = excluded.updated_at
+                """,
+                (key, payload, actor_id, self.now()),
+            )
+
+    def get_bot_setting(self, key: str, default: Any = None) -> Any:
+        with self.connect() as conn:
+            row = conn.execute("SELECT value FROM bot_settings WHERE key = ?", (key,)).fetchone()
+        if not row:
+            return default
+        try:
+            return json.loads(row["value"])
+        except json.JSONDecodeError:
+            return row["value"]
+
+    def all_bot_settings(self) -> dict[str, Any]:
+        with self.connect() as conn:
+            rows = conn.execute("SELECT key, value FROM bot_settings ORDER BY key").fetchall()
+        result: dict[str, Any] = {}
+        for row in rows:
+            try:
+                result[row["key"]] = json.loads(row["value"])
+            except json.JSONDecodeError:
+                result[row["key"]] = row["value"]
+        return result
+
+    def log_admin_action(
+        self,
+        chat_id: int,
+        admin_id: int,
+        action: str,
+        target_id: int | None = None,
+        detail: str = "",
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO admin_actions(chat_id, admin_id, action, target_id, detail, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (chat_id, admin_id, action, target_id, detail, self.now()),
+            )
+        self.log_action(chat_id, admin_id, action, target_id, detail)
 
     def recent_logs(self, chat_id: int, limit: int = 10) -> list[sqlite3.Row]:
         with self.connect() as conn:
@@ -413,6 +774,30 @@ class GroupStore:
                 """,
                 (chat_id, user_id, self.now()),
             )
+
+    def add_whitelist(self, chat_id: int, user_id: int, actor_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO whitelist(chat_id, user_id, added_by, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (chat_id, user_id, actor_id, self.now()),
+            )
+        self.log_action(chat_id, actor_id, "whitelist", user_id)
+
+    def remove_whitelist(self, chat_id: int, user_id: int, actor_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM whitelist WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
+        self.log_action(chat_id, actor_id, "unwhitelist", user_id)
+
+    def is_whitelisted(self, chat_id: int, user_id: int) -> bool:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM whitelist WHERE chat_id = ? AND user_id = ?",
+                (chat_id, user_id),
+            ).fetchone()
+        return row is not None
 
     def add_warning(self, chat_id: int, user_id: int) -> int:
         with self.connect() as conn:
@@ -553,19 +938,23 @@ class SecurityService:
             return "Possible raid detected from excessive joins."
         return None
 
-    def inspect_message(self, chat_id: int, user_id: int, text: str) -> list[str]:
+    def inspect_message(self, chat_id: int, user_id: int, text: str, entities: list[Any] | None = None) -> list[str]:
         findings: list[str] = []
         now = time.time()
         key = (chat_id, user_id)
+        guardian_enabled = self.store.get_setting(chat_id, "guardian", False)
         window = int(self.store.get_setting(chat_id, "flood_window", 10))
         threshold = int(self.store.get_setting(chat_id, "spam_threshold", 5))
+        if guardian_enabled:
+            window = max(3, window // 2)
+            threshold = max(3, threshold - 2)
         messages = self.messages.setdefault(key, [])
         messages.append((now, text))
         messages[:] = [(stamp, msg) for stamp, msg in messages if now - stamp <= window]
 
         lowered = text.lower()
         antispam_enabled = self.store.get_setting(chat_id, "antispam", True)
-        if self.store.get_setting(chat_id, "antilink", False) and ("http://" in lowered or "https://" in lowered or "t.me/" in lowered):
+        if self.store.get_setting(chat_id, "antilink", False) and _contains_link(lowered, entities):
             findings.append("link_spam")
         if self.store.get_setting(chat_id, "antiflood", True) and len(messages) >= threshold:
             findings.append("flood")
@@ -573,6 +962,8 @@ class SecurityService:
             findings.append("repeated_messages")
         if antispam_enabled and text.count("@") >= 6:
             findings.append("mention_spam")
+        if antispam_enabled and _caps_ratio(text) > 0.75 and sum(1 for char in text if char.isalpha()) >= 12:
+            findings.append("caps_spam")
         if self.store.get_setting(chat_id, "antiemoji", False) and _emoji_density(text) > 0.65 and len(text) >= 12:
             findings.append("emoji_spam")
 
@@ -624,6 +1015,27 @@ def _emoji_density(text: str) -> float:
         return 0.0
     emoji_like = sum(1 for char in text if ord(char) > 10000)
     return emoji_like / max(len(text), 1)
+
+
+def _caps_ratio(text: str) -> float:
+    letters = [char for char in text if char.isalpha()]
+    if not letters:
+        return 0.0
+    return sum(1 for char in letters if char.isupper()) / len(letters)
+
+
+def _contains_link(lowered_text: str, entities: list[Any] | None = None) -> bool:
+    needles = ("http://", "https://", "t.me/", "telegram.me/", "www.")
+    if any(needle in lowered_text for needle in needles):
+        return True
+    for entity in entities or []:
+        entity_type = str(getattr(entity, "type", "")).lower()
+        if entity_type in {"url", "text_link"}:
+            return True
+        url = str(getattr(entity, "url", "") or "").lower()
+        if any(needle in url for needle in needles):
+            return True
+    return False
 
 
 store = GroupStore()

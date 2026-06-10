@@ -48,6 +48,7 @@ ADMIN_IDS = _csv_ints(
 )
 MAX_WARNINGS = int(os.getenv("MAX_WARNINGS", "3"))
 MUTE_DURATION = int(os.getenv("MUTE_DURATION", "10"))
+SILENT_PERMISSION_MODE = os.getenv("SILENT_PERMISSION_MODE", "true").lower() == "true"
 
 # =========================
 # CONTENT FILTERING
