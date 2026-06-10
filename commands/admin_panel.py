@@ -28,6 +28,7 @@ TOGGLE_KEYS = {
     "ai_enabled": "AI enabled",
     "aireplies": "Auto AI replies",
     "silent_permission_mode": "Silent permissions",
+    "requestsystem": "Request system",
 }
 
 PUNISHMENTS = ["mute", "ban", "kick", "warn"]

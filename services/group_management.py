@@ -47,6 +47,7 @@ DEFAULT_SETTINGS = {
     "maintenance": False,
     "command_permissions": "{}",
     "silent_permission_mode": True,
+    "requestsystem": False,
     "rules": "No rules have been set yet.",
     "welcome": "Welcome {mention} to {chat}!",
     "goodbye": "Goodbye {name}.",
@@ -78,6 +79,7 @@ SETTING_COLUMNS: dict[str, tuple[str, str]] = {
     "group_language": ("group_language", "text"),
     "command_permissions": ("command_permissions", "text"),
     "silent_permission_mode": ("silent_permission_mode", "bool"),
+    "requestsystem": ("requestsystem_enabled", "bool"),
     "slowmode": ("slowmode", "int"),
     "spam_threshold": ("spam_threshold", "int"),
     "flood_window": ("flood_window", "int"),
@@ -111,6 +113,7 @@ CHAT_SETTINGS_COLUMNS_SQL = {
     "group_language": "TEXT NOT NULL DEFAULT 'en'",
     "command_permissions": "TEXT NOT NULL DEFAULT '{}'",
     "silent_permission_mode": "INTEGER NOT NULL DEFAULT 1",
+    "requestsystem_enabled": "INTEGER NOT NULL DEFAULT 0",
     "slowmode": "INTEGER NOT NULL DEFAULT 0",
     "spam_threshold": "INTEGER NOT NULL DEFAULT 5",
     "flood_window": "INTEGER NOT NULL DEFAULT 10",
@@ -241,6 +244,26 @@ class GroupStore:
                     created_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS moderation_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL,
+                    requester_id INTEGER NOT NULL,
+                    target_id INTEGER,
+                    target_display TEXT,
+                    action TEXT NOT NULL,
+                    reason TEXT,
+                    duration TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    approving_admin INTEGER,
+                    resolution_reason TEXT,
+                    created_at TEXT NOT NULL,
+                    resolved_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_moderation_requests_chat_status
+                    ON moderation_requests(chat_id, status, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_moderation_requests_requester_created
+                    ON moderation_requests(chat_id, requester_id, created_at DESC);
+
                 CREATE TABLE IF NOT EXISTS security_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     chat_id INTEGER NOT NULL,
@@ -355,6 +378,7 @@ class GroupStore:
                 """
             )
             self._migrate_chat_settings(conn)
+            self._migrate_moderation_requests(conn)
 
     def _migrate_chat_settings(self, conn: sqlite3.Connection) -> None:
         """Create the per-chat settings table and migrate legacy key/value rows."""
@@ -390,6 +414,21 @@ class GroupStore:
                 conn.execute(f"ALTER TABLE chat_settings ADD COLUMN {column} {column_sql}")
         if "updated_at" not in current_columns:
             conn.execute("ALTER TABLE chat_settings ADD COLUMN updated_at TEXT")
+
+    @staticmethod
+    def _migrate_moderation_requests(conn: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(moderation_requests)").fetchall()}
+        migrations = {
+            "action": "TEXT",
+            "duration": "TEXT",
+            "resolution_reason": "TEXT",
+            "target_display": "TEXT",
+            "approving_admin": "INTEGER",
+            "resolved_at": "TEXT",
+        }
+        for column, definition in migrations.items():
+            if columns and column not in columns:
+                conn.execute(f"ALTER TABLE moderation_requests ADD COLUMN {column} {definition}")
 
     @staticmethod
     def _create_chat_settings_table(conn: sqlite3.Connection) -> None:
@@ -856,6 +895,99 @@ class GroupStore:
                 (chat_id, reporter_id, target_id, reason, self.now()),
             )
         self.log_action(chat_id, reporter_id, "report", target_id, reason)
+
+    def moderation_request_count(self, chat_id: int, requester_id: int, minutes: int = 10) -> int:
+        cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat(timespec="seconds")
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM moderation_requests
+                WHERE chat_id = ? AND requester_id = ? AND created_at >= ?
+                """,
+                (chat_id, requester_id, cutoff),
+            ).fetchone()
+        return int(row["count"]) if row else 0
+
+    def create_moderation_request(
+        self,
+        chat_id: int,
+        requester_id: int,
+        target_id: int | None,
+        target_display: str,
+        action: str,
+        reason: str,
+        duration: str | None = None,
+    ) -> int:
+        with self.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO moderation_requests(
+                    chat_id, requester_id, target_id, target_display, action,
+                    reason, duration, status, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+                """,
+                (
+                    chat_id,
+                    requester_id,
+                    target_id,
+                    target_display,
+                    action.upper(),
+                    reason,
+                    duration,
+                    self.now(),
+                ),
+            )
+            request_id = int(cur.lastrowid)
+        self.log_action(chat_id, requester_id, "moderation_request_created", target_id, f"{action.upper()}: {reason}")
+        return request_id
+
+    def moderation_request(self, request_id: int) -> sqlite3.Row | None:
+        with self.connect() as conn:
+            return conn.execute("SELECT * FROM moderation_requests WHERE id = ?", (request_id,)).fetchone()
+
+    def moderation_requests(self, chat_id: int, status: str | None = "pending", limit: int = 10) -> list[sqlite3.Row]:
+        with self.connect() as conn:
+            if status:
+                return conn.execute(
+                    """
+                    SELECT * FROM moderation_requests
+                    WHERE chat_id = ? AND status = ?
+                    ORDER BY id DESC LIMIT ?
+                    """,
+                    (chat_id, status, limit),
+                ).fetchall()
+            return conn.execute(
+                "SELECT * FROM moderation_requests WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
+                (chat_id, limit),
+            ).fetchall()
+
+    def resolve_moderation_request(
+        self,
+        request_id: int,
+        status: str,
+        admin_id: int,
+        resolution_reason: str = "",
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE moderation_requests
+                SET status = ?, approving_admin = ?, resolution_reason = ?, resolved_at = ?
+                WHERE id = ?
+                """,
+                (status, admin_id, resolution_reason, self.now(), request_id),
+            )
+        row = self.moderation_request(request_id)
+        if row:
+            self.log_action(
+                int(row["chat_id"]),
+                admin_id,
+                f"moderation_request_{status}",
+                row["target_id"],
+                f"request={request_id}; action={row['action']}; {resolution_reason}",
+            )
 
     def log_security_event(self, chat_id: int, event_type: str, user_id: int | None = None, detail: str = "") -> None:
         with self.connect() as conn:

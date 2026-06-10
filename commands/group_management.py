@@ -70,12 +70,29 @@ async def _require_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return False
 
 
-async def _require_owner(update: Update) -> bool:
+async def _require_owner(update: Update, context: ContextTypes.DEFAULT_TYPE | None = None) -> bool:
     if _actor_id(update) == OWNER_ID:
         return True
     await _log_unauthorized(update, "owner")
     if not _silent_permission_mode(_chat_id(update)):
         await update.message.reply_text("You don't have permission to use this command.")
+    return False
+
+
+async def _bot_has_permission(update: Update, context: ContextTypes.DEFAULT_TYPE, permission: str) -> bool:
+    bot_id = getattr(context.bot, "id", None)
+    if bot_id is None:
+        return True
+    try:
+        member = await context.bot.get_chat_member(_chat_id(update), bot_id)
+    except Exception as exc:
+        logger.warning("Could not verify Marine permission %s in %s: %s", permission, _chat_id(update), exc)
+        return True
+    if bool(getattr(member, permission, False)):
+        return True
+    logger.warning("Marine missing permission %s in chat %s", permission, _chat_id(update))
+    if update.message:
+        await update.message.reply_text(f"Marine needs `{permission}` to perform this action.", parse_mode="Markdown")
     return False
 
 
@@ -115,6 +132,8 @@ def _reason(context: ContextTypes.DEFAULT_TYPE, skip: int = 1) -> str:
 async def tempban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_admin(update, context):
         return
+    if not await _bot_has_permission(update, context, "can_restrict_members"):
+        return
     target = await resolve_target(update, context)
     if not target:
         await _send_unknown_user(update)
@@ -129,6 +148,8 @@ async def tempban(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def tempmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_admin(update, context):
         return
+    if not await _bot_has_permission(update, context, "can_restrict_members"):
+        return
     target = await resolve_target(update, context)
     if not target:
         await _send_unknown_user(update)
@@ -141,7 +162,9 @@ async def tempmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def enough(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await _require_owner(update):
+    if not await _require_owner(update, context):
+        return
+    if not await _bot_has_permission(update, context, "can_restrict_members"):
         return
     chat_id = _chat_id(update)
     if context.args and context.args[0].lower() in {"list", "view"}:
@@ -165,6 +188,21 @@ async def enough(update: Update, context: ContextTypes.DEFAULT_TYPE):
     store.add_permanent_ban(chat_id, target.user_id, reason, _actor_id(update))
     await context.bot.ban_chat_member(chat_id, target.user_id)
     await update.message.reply_text(f"Permanent re-ban enabled for {target.display_name}.")
+
+
+async def unenough(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_owner(update, context):
+        return
+    target = await resolve_target(update, context)
+    if not target:
+        await _send_unknown_user(update)
+        return
+    store.remove_permanent_ban(_chat_id(update), target.user_id, _actor_id(update))
+    try:
+        await context.bot.unban_chat_member(_chat_id(update), target.user_id)
+    except Exception:
+        pass
+    await update.message.reply_text(f"Removed permanent re-ban for {target.display_name}.")
 
 
 async def modlogs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -216,6 +254,8 @@ async def modstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def purge(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_admin(update, context):
         return
+    if not await _bot_has_permission(update, context, "can_delete_messages"):
+        return
     if not update.message.reply_to_message:
         await update.message.reply_text("Reply to the first message to purge from.")
         return
@@ -248,6 +288,8 @@ async def purgeuser(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
     target = await resolve_target(update, context)
     reason = _reason(context, 1 if target else 0)
     store.add_report(_chat_id(update), _actor_id(update), target.user_id if target else None, reason)
@@ -256,6 +298,8 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def pin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_admin(update, context):
+        return
+    if not await _bot_has_permission(update, context, "can_pin_messages"):
         return
     if not update.message.reply_to_message:
         await update.message.reply_text("Reply to a message to pin it.")
@@ -268,6 +312,8 @@ async def pin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def unpin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_admin(update, context):
         return
+    if not await _bot_has_permission(update, context, "can_pin_messages"):
+        return
     await context.bot.unpin_chat_message(_chat_id(update))
     store.log_action(_chat_id(update), _actor_id(update), "unpin")
     await update.message.reply_text("Unpinned latest pinned message.")
@@ -276,11 +322,46 @@ async def unpin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def slowmode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _require_admin(update, context):
         return
+    if not await _bot_has_permission(update, context, "can_manage_chat"):
+        return
     seconds = int(context.args[0]) if context.args and context.args[0].isdigit() else 0
     await context.bot.set_chat_slow_mode_delay(_chat_id(update), seconds)
     store.set_setting(_chat_id(update), "slowmode", seconds)
     store.log_action(_chat_id(update), _actor_id(update), "slowmode", reason=str(seconds))
     await update.message.reply_text(f"Slowmode set to {seconds} seconds.")
+
+
+async def lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    if not await _bot_has_permission(update, context, "can_manage_chat"):
+        return
+    perms = ChatPermissions(can_send_messages=False)
+    await context.bot.set_chat_permissions(_chat_id(update), perms)
+    store.log_action(_chat_id(update), _actor_id(update), "lock")
+    await update.message.reply_text("Chat locked.")
+
+
+async def unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    if not await _bot_has_permission(update, context, "can_manage_chat"):
+        return
+    perms = ChatPermissions(
+        can_send_messages=True,
+        can_send_audios=True,
+        can_send_documents=True,
+        can_send_photos=True,
+        can_send_videos=True,
+        can_send_video_notes=True,
+        can_send_voice_notes=True,
+        can_send_polls=True,
+        can_send_other_messages=True,
+        can_add_web_page_previews=True,
+    )
+    await context.bot.set_chat_permissions(_chat_id(update), perms)
+    store.log_action(_chat_id(update), _actor_id(update), "unlock")
+    await update.message.reply_text("Chat unlocked.")
 
 
 async def tagall(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -779,6 +860,7 @@ COMMANDS: dict[str, Any] = {
     "tempban": tempban,
     "tempmute": tempmute,
     "enough": enough,
+    "unenough": unenough,
     "history": history,
     "purge": purge,
     "purgeuser": purgeuser,
@@ -789,6 +871,8 @@ COMMANDS: dict[str, Any] = {
     "pin": pin,
     "unpin": unpin,
     "slowmode": slowmode,
+    "lock": lock,
+    "unlock": unlock,
     "tagall": tagall,
     "hidetag": hidetag,
     "guardian": guardian,

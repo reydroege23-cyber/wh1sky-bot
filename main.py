@@ -37,6 +37,10 @@ from single_instance import SingleInstanceLock
 from commands.group_management import COMMANDS as GROUP_MANAGEMENT_COMMANDS
 from commands.admin_panel import COMMANDS as ADMIN_PANEL_COMMANDS, panel_callback
 from commands.owner_panel import COMMANDS as OWNER_PANEL_COMMANDS, owner_callback, owner_text_input
+from commands.moderation_requests import (
+    COMMANDS as MODERATION_REQUEST_COMMANDS,
+    moderation_request_callback,
+)
 from services.group_management import security_service, store as group_store
 from healthcheck import start_background as start_health_server
 from bot_commands import command_names as menu_command_names, sync_bot_commands
@@ -1171,6 +1175,24 @@ async def _warn_missing_permission(update: Update, permission: str) -> None:
     )
 
 
+async def _require_bot_permission_for_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    permission: str,
+) -> bool:
+    chat_id = _safe_chat_id(update)
+    if chat_id is None:
+        return False
+    if await _bot_can(context, chat_id, permission):
+        return True
+    logger.warning("Marine missing command permission %s in chat=%s", permission, chat_id)
+    group_store.log_action(chat_id, None, "bot_missing_permission", reason=permission)
+    msg = _safe_message_obj(update)
+    if msg:
+        await msg.reply_text(f"Marine needs `{permission}` to perform this action.", parse_mode="Markdown")
+    return False
+
+
 async def _handle_security_findings(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -1704,6 +1726,8 @@ async def clear_warns(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mute user."""
     try:
+        if not await _require_bot_permission_for_command(update, context, "can_restrict_members"):
+            return
         user_id, username = await get_user_from_command(update, context)
         
         if not user_id:
@@ -1738,6 +1762,8 @@ async def mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Unmute user."""
     try:
+        if not await _require_bot_permission_for_command(update, context, "can_restrict_members"):
+            return
         user_id, username = await get_user_from_command(update, context)
         
         if not user_id:
@@ -1767,6 +1793,8 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Kick user."""
     try:
+        if not await _require_bot_permission_for_command(update, context, "can_restrict_members"):
+            return
         user_id, username = await get_user_from_command(update, context)
         
         if not user_id:
@@ -1792,6 +1820,8 @@ async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ban user by reply, ID, text mention, or known username."""
     try:
+        if not await _require_bot_permission_for_command(update, context, "can_restrict_members"):
+            return
         user_id, username = await get_user_from_command(update, context)
         if not user_id:
             await update.message.reply_text("I don't know this user yet. Reply to their message or use their Telegram ID.")
@@ -1815,6 +1845,8 @@ async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Unban user."""
     try:
+        if not await _require_bot_permission_for_command(update, context, "can_restrict_members"):
+            return
         user_id, username = await get_user_from_command(update, context)
         
         if not user_id:
@@ -1835,6 +1867,8 @@ async def unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def foreverban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Permanently blacklist a user and ban them from the group."""
     try:
+        if not await _require_bot_permission_for_command(update, context, "can_restrict_members"):
+            return
         user_id, username = await get_user_from_command(update, context)
         if not user_id:
             await update.message.reply_text(
@@ -1868,6 +1902,8 @@ async def foreverban(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def foreverunban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Remove a user from the permanent blacklist."""
     try:
+        if not await _require_bot_permission_for_command(update, context, "can_restrict_members"):
+            return
         user_id, username = await get_user_from_command(update, context)
         if not user_id:
             await update.message.reply_text(
@@ -3855,6 +3891,9 @@ def setup_bot():
     for command_name, handler in OWNER_PANEL_COMMANDS.items():
         app.add_handler(CommandHandler(command_name, handler))
 
+    for command_name, handler in MODERATION_REQUEST_COMMANDS.items():
+        app.add_handler(CommandHandler(command_name, handler))
+
     for command_name, handler in GROUP_MANAGEMENT_COMMANDS.items():
         app.add_handler(CommandHandler(command_name, handler))
 
@@ -3863,6 +3902,7 @@ def setup_bot():
 
     app.add_handler(CallbackQueryHandler(panel_callback, pattern=r"^panel:"))
     app.add_handler(CallbackQueryHandler(owner_callback, pattern=r"^owner:"))
+    app.add_handler(CallbackQueryHandler(moderation_request_callback, pattern=r"^modreq:"))
     app.add_handler(CallbackQueryHandler(lasthope_callback))
 
     # Enforce permanent blacklist
