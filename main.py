@@ -1224,6 +1224,55 @@ async def _require_bot_permission_for_command(
     return False
 
 
+SECURITY_FINDING_SCORES = {
+    "link_spam": 70,
+    "flood": 65,
+    "repeated_messages": 45,
+    "mention_spam": 75,
+    "caps_spam": 40,
+    "emoji_spam": 45,
+    "raid": 90,
+}
+
+
+def _security_violation_score(findings: list[str]) -> int:
+    return min(100, sum(SECURITY_FINDING_SCORES.get(finding, 30) for finding in findings if finding))
+
+
+def _security_event_detail(
+    *,
+    action: str,
+    findings: list[str],
+    score: int,
+    reason: str,
+    snippet: str,
+    skipped: str = "",
+) -> str:
+    return json.dumps(
+        {
+            "action": action,
+            "reason": reason,
+            "matched_rule": ",".join(findings),
+            "score": score,
+            "message_snippet": snippet[:200],
+            "skipped": skipped,
+        },
+        ensure_ascii=True,
+    )
+
+
+def _security_action_level(settings: dict[str, Any]) -> str:
+    level = str(settings.get("auto_action_level") or "log").lower()
+    if level in {"log", "log_only", "none"}:
+        return "log"
+    if level in {"delete", "warn", "mute", "ban", "kick"}:
+        return level
+    punishment = str(settings.get("punishment") or "").lower()
+    if punishment in {"warn", "mute", "ban", "kick"}:
+        return punishment
+    return "log"
+
+
 async def _handle_security_findings(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -1245,39 +1294,100 @@ async def _handle_security_findings(
         return False
 
     settings = group_store.all_settings(chat_id)
-    guardian_enabled = bool(settings.get("guardian"))
-    warning_limit = int(settings.get("warnings_limit", 3))
-    punishment = str(settings.get("punishment", "mute"))
-    reason = ",".join(findings)
+    clean_findings = [finding for finding in findings if finding]
+    reason = ",".join(clean_findings)
+    if not reason:
+        logger.warning("Blocked punishment because no reason was provided")
+        return False
 
-    if await _bot_can(context, chat_id, "can_delete_messages"):
+    score = _security_violation_score(clean_findings)
+    snippet = str(getattr(update.message, "text", "") or "")
+    action_level = _security_action_level(settings)
+    testmode = bool(settings.get("testmode", True))
+    autopunish = bool(settings.get("autopunish", False))
+    auto_delete = bool(settings.get("auto_delete_enabled", False))
+    auto_mute = bool(settings.get("auto_mute_enabled", False))
+    auto_ban = bool(settings.get("auto_ban_enabled", False))
+
+    group_store.log_security_event(
+        chat_id,
+        "security_detection",
+        user_id,
+        _security_event_detail(
+            action="log",
+            findings=clean_findings,
+            score=score,
+            reason=reason,
+            snippet=snippet,
+            skipped="testmode" if testmode else "",
+        ),
+    )
+    group_store.log_action(chat_id, None, "security_log", user_id, f"{reason}; score={score}; mode={action_level}")
+
+    if testmode:
+        logger.info("Security testmode active; would handle %s in chat %s for user %s score=%s", reason, chat_id, user_id, score)
+        return True
+
+    if action_level == "log":
+        logger.info("Security action is log only for chat=%s user=%s reason=%s score=%s", chat_id, user_id, reason, score)
+        return True
+
+    if action_level == "delete":
+        if not auto_delete:
+            logger.info("Auto-delete disabled; skipping delete for chat=%s user=%s", chat_id, user_id)
+            group_store.log_security_event(chat_id, "security_skip", user_id, _security_event_detail(action="delete", findings=clean_findings, score=score, reason=reason, snippet=snippet, skipped="auto_delete_disabled"))
+            return True
+        if score < 70:
+            logger.info("Violation score too low for delete: chat=%s user=%s score=%s", chat_id, user_id, score)
+            return True
+        if await _bot_can(context, chat_id, "can_delete_messages"):
+            try:
+                await update.message.delete()
+                group_store.log_security_event(chat_id, "security_action", user_id, _security_event_detail(action="delete", findings=clean_findings, score=score, reason=reason, snippet=snippet))
+                group_store.log_action(chat_id, None, "security_delete", user_id, reason)
+            except Exception as e:
+                logger.warning("Security delete failed for %s in %s: %s", user_id, chat_id, e)
+        else:
+            await _warn_missing_permission(update, "can_delete_messages")
+            group_store.log_action(chat_id, None, "security_missing_permission", user_id, "can_delete_messages")
+        return True
+
+    if action_level == "warn":
+        if score < 75:
+            logger.info("Violation score too low for warning: chat=%s user=%s score=%s", chat_id, user_id, score)
+            return True
+        warning_count = group_store.add_warning(chat_id, user_id)
+        group_store.log_security_event(chat_id, "security_action", user_id, _security_event_detail(action="warn", findings=clean_findings, score=score, reason=reason, snippet=snippet))
+        group_store.log_action(chat_id, None, "security_warn", user_id, f"{reason}; warnings={warning_count}")
+        return True
+
+    if action_level in {"mute", "ban", "kick"}:
+        if not autopunish:
+            logger.info("Autopunish disabled; skipping action %s for chat=%s user=%s", action_level, chat_id, user_id)
+            group_store.log_security_event(chat_id, "security_skip", user_id, _security_event_detail(action=action_level, findings=clean_findings, score=score, reason=reason, snippet=snippet, skipped="autopunish_disabled"))
+            return True
+        if score < 90:
+            logger.info("Violation score too low for ban/mute: chat=%s user=%s score=%s", chat_id, user_id, score)
+            group_store.log_security_event(chat_id, "security_skip", user_id, _security_event_detail(action=action_level, findings=clean_findings, score=score, reason=reason, snippet=snippet, skipped="score_below_90"))
+            return True
+        if action_level == "mute" and not auto_mute:
+            logger.info("Auto-mute disabled; skipping mute for chat=%s user=%s", chat_id, user_id)
+            return True
+        if action_level in {"ban", "kick"} and not auto_ban:
+            logger.info("Auto-ban disabled; skipping %s for chat=%s user=%s", action_level, chat_id, user_id)
+            return True
+        if not await _bot_can(context, chat_id, "can_restrict_members"):
+            await _warn_missing_permission(update, "can_restrict_members")
+            group_store.log_action(chat_id, None, "security_missing_permission", user_id, "can_restrict_members")
+            return True
         try:
-            await update.message.delete()
-            group_store.log_action(chat_id, None, "security_delete", user_id, reason)
-        except Exception as e:
-            logger.warning("Security delete failed for %s in %s: %s", user_id, chat_id, e)
-    else:
-        await _warn_missing_permission(update, "can_delete_messages")
-        group_store.log_action(chat_id, None, "security_missing_permission", user_id, "can_delete_messages")
-
-    warning_count = group_store.add_warning(chat_id, user_id)
-    group_store.log_action(chat_id, None, "security_warn", user_id, f"{reason}; warnings={warning_count}")
-
-    should_punish = guardian_enabled or warning_count >= warning_limit
-    if should_punish:
-        try:
-            if punishment in {"mute", "ban", "kick"} and not await _bot_can(context, chat_id, "can_restrict_members"):
-                await _warn_missing_permission(update, "can_restrict_members")
-                group_store.log_action(chat_id, None, "security_missing_permission", user_id, "can_restrict_members")
-            else:
-                action = await _apply_security_punishment(context, chat_id, user_id, punishment, reason)
-                group_store.log_action(chat_id, None, f"security_{action}", user_id, reason)
-                if warning_count >= warning_limit:
-                    group_store.clear_warnings(chat_id, user_id)
+            action = await _apply_security_punishment(context, chat_id, user_id, action_level, reason)
+            group_store.log_security_event(chat_id, "security_action", user_id, _security_event_detail(action=action, findings=clean_findings, score=score, reason=reason, snippet=snippet))
+            group_store.log_action(chat_id, None, f"security_{action}", user_id, reason)
         except Exception as e:
             logger.warning("Security punishment failed for %s in %s: %s", user_id, chat_id, e)
 
-    logger.warning("Security findings handled in chat %s for user %s: %s", chat_id, user_id, findings)
+    logger.warning("Security findings logged in chat %s for user %s: %s score=%s", chat_id, user_id, clean_findings, score)
     return True
 
 
@@ -1526,14 +1636,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     group_store.record_message(chat_id, user_id_int)
 
-    findings = security_service.inspect_message(
-        chat_id,
-        user_id_int,
-        update.message.text,
-        entities=list(update.message.entities or []),
-    )
-    if await _handle_security_findings(update, context, findings):
-        return
+    if update.effective_chat.type in {"group", "supergroup"} and not update.message.text.startswith("/"):
+        findings = security_service.inspect_message(
+            chat_id,
+            user_id_int,
+            update.message.text,
+            entities=list(update.message.entities or []),
+        )
+        if await _handle_security_findings(update, context, findings):
+            return
 
     # Track recent non-command messages for spam cleanup
     RECENT_CHAT_MESSAGES[chat_id].append(update.message.message_id)
@@ -3876,53 +3987,26 @@ async def drip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 
 async def _notify_owner_of_error(context: ContextTypes.DEFAULT_TYPE, error_msg: str, chat_id: int | None = None, user_id: int | None = None, error_type: str = "generic") -> None:
-    """Log error locally only. NO TELEGRAM MESSAGES.
-    
-    Error notifications are DISABLED by default.
-    They can only be enabled by the owner with /errornotifications on
-    and only alert the owner (never groups/channels/other users).
-    """
+    """Log error locally only. NO TELEGRAM MESSAGES."""
     try:
-        # Check if error notifications are enabled in database
-        error_notif_enabled = group_store.get_setting(OWNER_ID, "error_notifications_enabled", False) if hasattr(group_store, 'get_setting') else False
-        
-        # Log the error (always)
         location_str = ""
         if chat_id is not None:
             location_str = f" | Chat: {chat_id}"
         if user_id is not None:
             location_str += f" | User: {user_id}"
         logger.warning(f"Error [{error_type}]{location_str}: {error_msg[:200]}")
-        
-        # ONLY send Telegram message if explicitly enabled by owner
-        if not error_notif_enabled:
-            logger.debug(f"Error notifications disabled - not sending Telegram message")
-            return
-        
-        # Rate limit: only alert if enough time has passed for this error type
-        if not _should_alert_owner(error_type):
-            logger.debug(f"Skipping owner alert for {error_type} (rate limited)")
-            return
-        
-        # Only notify owner ID, never anyone else
-        location_info = ""
-        if chat_id is not None:
-            location_info = f"\n📍 Chat ID: {chat_id}"
-        if user_id is not None:
-            location_info += f"\n👤 User ID: {user_id}"
-        
-        notification = f"⚠️ Marine error detected{location_info}\n\n{error_msg[:200]}"
-        await context.bot.send_message(chat_id=OWNER_ID, text=notification)
     except Exception as e:
-        logger.error(f"Failed to log/notify error: {e}")
-
+        logger.error(f"Failed to log error: {e}")
 
 async def error_handler(update: Update | object, context: ContextTypes.DEFAULT_TYPE):
-    """Handle errors silently in groups, log internally, notify owner privately."""
+    """Handle errors silently and log internally only."""
     error = context.error
     
     # Full error logging (internal, invisible to users)
-    logger.exception("Handler error", exc_info=context.error)
+    if isinstance(error, BaseException):
+        logger.exception("Handler error", exc_info=error)
+    else:
+        logger.error("Handler error: %s", error)
     
     # Determine if this is a group chat
     is_group_chat = False
@@ -3936,6 +4020,14 @@ async def error_handler(update: Update | object, context: ContextTypes.DEFAULT_T
                 is_group_chat = update.effective_chat.type in ['group', 'supergroup']
             if update.effective_user:
                 user_id = update.effective_user.id
+        else:
+            effective_chat = getattr(update, "effective_chat", None)
+            effective_user = getattr(update, "effective_user", None)
+            if effective_chat:
+                chat_id = effective_chat.id
+                is_group_chat = effective_chat.type in ['group', 'supergroup']
+            if effective_user:
+                user_id = effective_user.id
     except Exception:
         pass
     
@@ -3963,16 +4055,11 @@ async def error_handler(update: Update | object, context: ContextTypes.DEFAULT_T
     if "connection" in str(error).lower():
         logger.warning("🔌 Connection error - will retry")
     
-    # NEVER show error message to users in groups
-    # Only notify owner privately if this was a group error
-    if is_group_chat:
-        await _notify_owner_of_error(context, str(error)[:300], chat_id=chat_id, user_id=user_id, error_type="error_handler")
-    elif hasattr(update, 'message') and getattr(update, 'message', None) is not None:
-        # Private chat: also silent (owner can check logs)
-        try:
-            await _notify_owner_of_error(context, str(error)[:300], chat_id=chat_id, user_id=user_id, error_type="error_handler")
-        except Exception:
-            pass
+    try:
+        if chat_id is not None:
+            group_store.log_action(chat_id, user_id, "handler_error", reason=str(error)[:500])
+    except Exception:
+        logger.debug("Could not persist handler error metadata", exc_info=True)
 
 # =========================
 # BOT SETUP

@@ -42,6 +42,12 @@ DEFAULT_SETTINGS = {
     "raid_window": 60,
     "warnings_limit": 3,
     "punishment": "mute",
+    "auto_ban_enabled": False,
+    "auto_mute_enabled": False,
+    "auto_delete_enabled": False,
+    "testmode": True,
+    "autopunish": False,
+    "auto_action_level": "log",
     "log_channel": "",
     "group_language": "en",
     "maintenance": False,
@@ -75,6 +81,12 @@ SETTING_COLUMNS: dict[str, tuple[str, str]] = {
     "goodbye": ("goodbye_message", "text"),
     "warnings_limit": ("warning_limit", "int"),
     "punishment": ("punishment_type", "text"),
+    "auto_ban_enabled": ("auto_ban_enabled", "bool"),
+    "auto_mute_enabled": ("auto_mute_enabled", "bool"),
+    "auto_delete_enabled": ("auto_delete_enabled", "bool"),
+    "testmode": ("testmode_enabled", "bool"),
+    "autopunish": ("autopunish_enabled", "bool"),
+    "auto_action_level": ("auto_action_level", "text"),
     "log_channel": ("log_chat_id", "nullable_int"),
     "group_language": ("group_language", "text"),
     "command_permissions": ("command_permissions", "text"),
@@ -109,6 +121,12 @@ CHAT_SETTINGS_COLUMNS_SQL = {
     "goodbye_message": "TEXT NOT NULL DEFAULT 'Goodbye {name}.'",
     "warning_limit": "INTEGER NOT NULL DEFAULT 3",
     "punishment_type": "TEXT NOT NULL DEFAULT 'mute'",
+    "auto_ban_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "auto_mute_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "auto_delete_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "testmode_enabled": "INTEGER NOT NULL DEFAULT 1",
+    "autopunish_enabled": "INTEGER NOT NULL DEFAULT 0",
+    "auto_action_level": "TEXT NOT NULL DEFAULT 'log'",
     "log_chat_id": "INTEGER DEFAULT NULL",
     "group_language": "TEXT NOT NULL DEFAULT 'en'",
     "command_permissions": "TEXT NOT NULL DEFAULT '{}'",
@@ -995,6 +1013,16 @@ class GroupStore:
                 "INSERT INTO security_events(chat_id, user_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?)",
                 (chat_id, user_id, event_type, detail, self.now()),
             )
+
+    def last_security_event(self, chat_id: int, user_id: int | None = None) -> sqlite3.Row | None:
+        query = "SELECT * FROM security_events WHERE chat_id = ?"
+        params: list[Any] = [chat_id]
+        if user_id is not None:
+            query += " AND user_id = ?"
+            params.append(user_id)
+        query += " ORDER BY id DESC LIMIT 1"
+        with self.connect() as conn:
+            return conn.execute(query, params).fetchone()
 
     def security_counts(self, chat_id: int, minutes: int = 60) -> dict[str, int]:
         cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat(timespec="seconds")

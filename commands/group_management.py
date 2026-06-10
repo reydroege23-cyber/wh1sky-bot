@@ -419,6 +419,42 @@ async def silentperms(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await toggle_setting(update, context, "silent_permission_mode")
 
 
+async def testmode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await toggle_setting(update, context, "testmode")
+
+
+async def autopunish(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await toggle_setting(update, context, "autopunish")
+
+
+async def whyaction(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _require_admin(update, context):
+        return
+    chat_id = _chat_id(update)
+    target = await resolve_target(update, context) if context.args or update.message.reply_to_message else None
+    row = store.last_security_event(chat_id, target.user_id if target else None)
+    if not row:
+        await update.message.reply_text("No security actions have been recorded for this chat.")
+        return
+    detail: dict[str, Any] = {}
+    try:
+        detail = json.loads(row["detail"] or "{}")
+    except json.JSONDecodeError:
+        detail = {"reason": row["detail"] or ""}
+    lines = [
+        f"User ID: {row['user_id'] or 'unknown'}",
+        f"Action: {detail.get('action', row['event_type'])}",
+        f"Reason: {detail.get('reason', row['event_type'])}",
+        f"Matched rule: {detail.get('matched_rule', row['event_type'])}",
+        f"Score: {detail.get('score', 'unknown')}",
+        f"Chat ID: {row['chat_id']}",
+        f"Timestamp: {row['created_at']}",
+        f"Skipped: {detail.get('skipped') or 'no'}",
+        f"Message snippet: {detail.get('message_snippet', '')}",
+    ]
+    await update.message.reply_text("\n".join(lines))
+
+
 async def aireplies(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await toggle_setting(update, context, "aireplies")
 
@@ -515,6 +551,12 @@ async def security(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Anti-flood: {settings.get('antiflood')}",
         f"Anti-emoji: {settings.get('antiemoji')}",
         f"Anti-raid: {settings.get('antiraid')}",
+        f"Test mode: {settings.get('testmode')}",
+        f"Autopunish: {settings.get('autopunish')}",
+        f"Auto delete: {settings.get('auto_delete_enabled')}",
+        f"Auto mute: {settings.get('auto_mute_enabled')}",
+        f"Auto ban: {settings.get('auto_ban_enabled')}",
+        f"Auto action level: {settings.get('auto_action_level')}",
         f"Punishment: {settings.get('punishment')}",
         f"Warning limit: {settings.get('warnings_limit')}",
         f"Recent incidents: {counts or 'none'}",
@@ -883,6 +925,9 @@ COMMANDS: dict[str, Any] = {
     "antiraid": antiraid,
     "captcha": captcha,
     "silentperms": silentperms,
+    "testmode": testmode,
+    "autopunish": autopunish,
+    "whyaction": whyaction,
     "aireplies": aireplies,
     "aimode": aimode,
     "aicooldown": aicooldown,
