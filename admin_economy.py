@@ -349,8 +349,8 @@ async def cleanup_fake_users(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.info(f"🗑️ Admin {user_id} cleaned database: removed {result['removed_count']} fake users")
         
     except Exception as e:
-        logger.error(f"❌ Cleanup error: {e}")
-        await update.message.reply_text(f"❌ Cleanup failed: {e}", parse_mode="Markdown")
+        logger.exception("Cleanup error", exc_info=True)
+        await update.message.reply_text("❌ Cleanup failed. See logs for details.")
 
 @owner_only
 async def cleanup_fake_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -409,8 +409,8 @@ async def cleanup_fake_users(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.info(f"🗑️ Admin {user_id} cleaned database: removed {result['removed_count']} fake users")
         
     except Exception as e:
-        logger.error(f"❌ Cleanup error: {e}")
-        await update.message.reply_text(f"❌ Cleanup failed: {e}", parse_mode="Markdown")
+        logger.exception("Cleanup error", exc_info=True)
+        await update.message.reply_text("❌ Cleanup failed. See logs for details.")
 
 @owner_only
 async def check_fake_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -451,5 +451,5 @@ async def check_fake_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"🔍 Admin {user_id} checked database: found {len(fake_users)} fake users")
         
     except Exception as e:
-        logger.error(f"❌ Check error: {e}")
-        await update.message.reply_text(f"❌ Check failed: {e}", parse_mode="Markdown")
+        logger.exception("Check fake users error", exc_info=True)
+        await update.message.reply_text("❌ Check failed. See logs for details.")

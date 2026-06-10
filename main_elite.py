@@ -617,8 +617,7 @@ Warnings: {warns}/{MAX_WARNINGS}
         """
         await update.message.reply_text(info, parse_mode="Markdown")
     except Exception as e:
-        logger.error(f"User info error: {e}")
-        await update.message.reply_text(f"❌ Failed to get user info: {str(e)}")
+        logger.exception("User info error", exc_info=True)
 
 @admin_only
 async def admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
